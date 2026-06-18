@@ -1,0 +1,8 @@
+{
+  "name": "ece-call-queue",
+  "version": "1.0.0",
+  "description": "ECE Contact Centers — Call Queue System",
+  "dependencies": {
+    "googleapis": "^131.0.0"
+  }
+}

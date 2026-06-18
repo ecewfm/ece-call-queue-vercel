@@ -1,0 +1,2358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Call Queue System — ECE Contact Centers</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:Arial,sans-serif;font-size:14px;background:#f4f6f9;color:#1a1a1a;min-height:100vh}
+.screen{display:none}.screen.active{display:block}
+.page-wrap{max-width:1200px;margin:0 auto;padding:1.5rem}
+.top-bar{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:10px 18px;margin-bottom:1.25rem;flex-wrap:wrap}
+.top-bar h1{font-size:15px;font-weight:600;flex:1;color:#1a1a1a}
+.avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:#dbeafe;color:#1d4ed8;flex-shrink:0}
+.avatar.admin-av{background:#ede9fe;color:#6d28d9}
+.card{background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem}
+.card-title{font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
+.b-avail{background:#d1fae5;color:#065f46}
+.b-break{background:#fef3c7;color:#92400e}
+.b-away{background:#f1f5f9;color:#475569}
+.b-lunch{background:#fed7aa;color:#9a3412}
+.b-coaching{background:#ede9fe;color:#5b21b6}
+.b-meeting{background:#dbeafe;color:#1e40af}
+.b-outbound{background:#ccfbf1;color:#0f766e}
+.b-notavail{background:#f1f5f9;color:#475569}
+.b-eos{background:#fce7f3;color:#9d174d}
+.b-oncall{background:#fee2e2;color:#991b1b}
+.b-admin{background:#ede9fe;color:#5b21b6}
+.b-agent{background:#dbeafe;color:#1e40af}
+.q-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #e2e6ea;border-radius:8px;margin-bottom:6px;background:#f8fafc;flex-wrap:wrap}
+.q-row.top-slot{border-color:#059669;border-width:1.5px;background:#ecfdf5}
+.q-row.oncall-slot{border-color:#dc2626;border-width:1.5px;background:#fff5f5}
+.q-row.my-slot{border-color:#2563eb;border-width:1.5px;background:#eff6ff}
+.q-row.off-slot{opacity:.8}
+.q-rank{font-size:12px;color:#94a3b8;min-width:18px;font-weight:600}
+.q-name{font-size:13px;font-weight:600;flex:1;color:#1a1a1a}
+.you-tag{font-size:10px;font-weight:600;color:#2563eb;background:#dbeafe;padding:1px 6px;border-radius:99px;margin-left:4px}
+.call-timer{font-size:12px;font-weight:700;color:#dc2626;background:#fee2e2;padding:2px 8px;border-radius:99px;font-family:monospace;min-width:56px;text-align:center}
+.wait-time{font-size:11px;color:#6b7280;min-width:40px}
+.sec-label{font-size:11px;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase;margin:8px 0 5px}
+.btn{font-size:12px;padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:600;border:1px solid transparent;transition:all .15s}
+.btn:hover{opacity:.85}.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:#059669;color:#fff;border-color:#059669}
+.btn-danger{background:#dc2626;color:#fff;border-color:#dc2626}
+.btn-blue{background:#2563eb;color:#fff;border-color:#2563eb}
+.btn-ghost{background:#fff;color:#374151;border-color:#d1d5db}
+.btn-ghost:hover{background:#f3f4f6}
+.btn-sm{padding:3px 9px;font-size:11px}
+.btn-full{width:100%;text-align:center;padding:9px}
+.form-row{margin-bottom:12px}
+.form-row label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px}
+input[type=text],input[type=password],input[type=date],input[type=number],select{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;color:#1a1a1a;background:#fff;outline:none}
+input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.err-msg{color:#dc2626;font-size:12px;margin-top:6px;font-weight:500}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem}
+.stat-box{background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:12px;text-align:center}
+.stat-n{font-size:24px;font-weight:700;color:#1a1a1a}
+.stat-l{font-size:11px;color:#6b7280;margin-top:2px;font-weight:500}
+.nav-tabs{display:flex;gap:3px;margin-bottom:1rem;border-bottom:2px solid #e2e6ea;flex-wrap:wrap}
+.nav-tab{font-size:13px;font-weight:600;padding:7px 13px;border-radius:8px 8px 0 0;background:transparent;color:#6b7280;cursor:pointer;border:1px solid transparent;border-bottom:none;margin-bottom:-2px}
+.nav-tab.active{background:#fff;color:#1a1a1a;border-color:#e2e6ea;border-bottom:2px solid #fff}
+.log-head{display:grid;grid-template-columns:160px 110px 75px 75px 70px 1fr;gap:5px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;padding:5px 0;border-bottom:1px solid #e2e6ea;margin-bottom:3px}
+.log-entry{display:grid;grid-template-columns:160px 110px 75px 75px 70px 1fr;gap:5px;font-size:12px;padding:5px 0;border-bottom:1px solid #f1f5f9;color:#374151;align-items:center}
+.log-entry:last-child{border-bottom:none}
+.log-wrap{max-height:420px;overflow-y:auto}
+.agent-tbl-head{display:grid;grid-template-columns:1fr 120px 80px 110px 90px;gap:8px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;padding:6px 10px;background:#f8fafc;border-radius:7px;margin-bottom:6px}
+.agent-tbl-row{display:grid;grid-template-columns:1fr 120px 80px 110px 90px;gap:8px;align-items:center;padding:8px 10px;border:1px solid #e2e6ea;border-radius:8px;margin-bottom:6px;background:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.aux-bar{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:9px 16px;margin-bottom:1rem;flex-wrap:wrap}
+.aux-bar label{font-size:13px;font-weight:600;color:#374151;white-space:nowrap}
+.aux-bar select{width:auto;flex:1;max-width:200px}
+.aux-bar .hint{font-size:11px;color:#94a3b8}
+#s-login{min-height:100vh;display:none;align-items:center;justify-content:center;background:#f4f6f9}
+#s-login.active{display:flex}
+.login-box{width:360px;background:#fff;border:1px solid #e2e6ea;border-radius:14px;padding:2rem;box-shadow:0 4px 24px rgba(0,0,0,.07)}
+.login-logo{text-align:center;margin-bottom:1.5rem}
+.login-logo .icon{font-size:38px;margin-bottom:8px}
+.login-logo h2{font-size:20px;font-weight:700;color:#1a1a1a}
+.login-logo p{font-size:13px;color:#6b7280;margin-top:4px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:5px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast-wrap{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:7px}
+.toast{background:#1a1a1a;color:#fff;font-size:13px;font-weight:500;padding:9px 16px;border-radius:9px;opacity:0;transform:translateY(-6px);transition:all .2s;pointer-events:none;max-width:320px}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.success{background:#059669}.toast.error{background:#dc2626}.toast.warning{background:#d97706}
+.aux-row-item{display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid #f1f5f9}
+.aux-row-item:last-child{border-bottom:none}
+.alert-banner{display:none;align-items:center;gap:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:13px;font-weight:600;color:#92400e}
+.alert-banner.active{display:flex}
+.alert-banner.critical{background:#fee2e2;border-color:#f87171;color:#991b1b}
+.threshold-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;flex-wrap:wrap}
+.threshold-row:last-child{border-bottom:none}
+.threshold-row label{flex:1;font-weight:600;color:#374151;min-width:200px}
+.heatmap-wrap{overflow-x:auto;margin-top:8px}
+.heatmap-table{border-collapse:collapse;font-size:11px}
+.heatmap-table th{padding:4px 2px;text-align:center;color:#6b7280;font-weight:600;white-space:nowrap;font-size:10px}
+.heatmap-table td{width:28px;height:24px;text-align:center;border:1px solid #f1f5f9;border-radius:3px;font-size:10px;font-weight:600;cursor:default}
+.hm-0{background:#f8fafc;color:#cbd5e1}
+.hm-1{background:#d1fae5;color:#065f46}
+.hm-2{background:#6ee7b7;color:#065f46}
+.hm-3{background:#059669;color:#fff}
+.hm-4{background:#065f46;color:#fff}
+.report-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem}
+.report-agent-row{display:grid;grid-template-columns:1fr 58px 88px 82px 78px 78px;gap:7px;align-items:center;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px}
+.report-agent-row:last-child{border-bottom:none}
+.report-head{font-weight:700;color:#6b7280;font-size:11px;text-transform:uppercase;background:#f8fafc;border-radius:7px;margin-bottom:4px}
+.export-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.export-bar input[type=date]{width:auto;min-width:130px}
+.rpt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.rpt-bar input[type=date]{width:auto;min-width:130px}
+.queue-time-bar{height:3px;border-radius:99px;background:#e2e6ea;margin-top:5px;overflow:hidden;width:100%;flex-basis:100%}
+.queue-time-fill{height:100%;border-radius:99px;background:#059669;transition:width .5s}
+.queue-time-fill.warn{background:#d97706}
+.queue-time-fill.crit{background:#dc2626}
+.empty-state{text-align:center;padding:1.5rem;color:#94a3b8;font-size:13px}
+/* ── Call alert modal ── */
+#call-alert-modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:99999}
+#call-alert-modal.active{display:flex}
+.cal-card{background:#fff;border-radius:16px;padding:2rem 2.5rem;text-align:center;max-width:380px;width:90%;border:2px solid #059669}
+.cal-ring{font-size:52px;margin-bottom:12px;animation:ring-anim 0.6s ease-in-out}
+@keyframes ring-anim{0%,100%{transform:rotate(0)}20%{transform:rotate(-15deg)}40%{transform:rotate(15deg)}60%{transform:rotate(-10deg)}80%{transform:rotate(10deg)}}
+.cal-title{font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:6px}
+.cal-sub{font-size:13px;color:#6b7280;margin-bottom:1.5rem}
+.cal-btn-receive{width:100%;padding:14px;background:#059669;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:12px;transition:background .15s}
+.cal-btn-receive:hover{background:#047857}
+.cal-dismiss-link{font-size:11px;color:#94a3b8;background:none;border:none;cursor:pointer;text-decoration:underline;padding:4px}
+.cal-dismiss-link:hover{color:#6b7280}
+.cal-avoidance-form{display:none;margin-top:14px;text-align:left;border-top:1px solid #e2e6ea;padding-top:14px}
+.cal-avoidance-form label{font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:5px}
+.cal-avoidance-form textarea{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;resize:none;outline:none;font-family:Arial,sans-serif}
+.cal-avoidance-form textarea:focus{border-color:#dc2626;box-shadow:0 0 0 2px #fee2e2}
+.cal-btn-confirm-dismiss{width:100%;padding:10px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px}
+.cal-btn-confirm-dismiss:hover{background:#b91c1c}
+.cal-err{font-size:11px;color:#dc2626;margin-top:4px;display:none}
+/* ── First-time setup / Forgot password / Profile settings modals ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:99990}
+.modal-overlay.active{display:flex}
+.modal-box{background:#fff;border-radius:14px;padding:2rem;max-width:420px;width:92%;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:18px;font-weight:700;color:#1a1a1a;margin-bottom:6px}
+.modal-sub{font-size:13px;color:#6b7280;margin-bottom:1.5rem;line-height:1.5}
+.m-form-row{margin-bottom:14px}
+.m-form-row label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px}
+.m-form-row input,.m-form-row select,.m-form-row textarea{width:100%;padding:9px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:13px;color:#1a1a1a;background:#fff;outline:none;font-family:Arial,sans-serif}
+.m-form-row input:focus,.m-form-row select:focus,.m-form-row textarea:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
+.m-btn{width:100%;padding:11px;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:background .15s}
+.m-btn:hover{opacity:.9}.m-btn:disabled{opacity:.4;cursor:not-allowed}
+.m-btn-green{background:#059669;color:#fff}
+.m-btn-blue{background:#2563eb;color:#fff}
+.m-btn-ghost{background:#f1f5f9;color:#374151;border:1px solid #d1d5db;margin-top:8px}
+.m-err{color:#dc2626;font-size:12px;margin-top:6px;font-weight:500;display:none}
+.m-success{color:#059669;font-size:12px;margin-top:6px;font-weight:500;display:none}
+/* Bulk upload */
+.bulk-textarea{width:100%;height:120px;padding:8px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;font-family:monospace;resize:vertical}
+.bulk-preview{margin-top:10px;max-height:200px;overflow-y:auto;border:1px solid #e2e6ea;border-radius:7px}
+.bulk-row{display:grid;grid-template-columns:1fr 120px 80px;gap:6px;padding:6px 10px;font-size:12px;border-bottom:1px solid #f1f5f9;align-items:center}
+.bulk-row:last-child{border-bottom:none}
+.bulk-head{font-weight:700;color:#6b7280;font-size:11px;text-transform:uppercase;background:#f8fafc}
+.agent-shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.agent-topbar{display:flex;align-items:center;gap:8px;background:#fff;border-bottom:1px solid #e2e6ea;padding:8px 16px;flex-shrink:0;flex-wrap:wrap}
+.agent-topbar h1{flex:0 0 auto}
+.agent-body{display:grid;grid-template-columns:300px 1fr;flex:1;overflow:hidden;min-height:0}
+/* Left panel */
+.agent-left{display:flex;flex-direction:column;background:#fff;border-right:1px solid #e2e6ea;overflow:hidden}
+.alp-section{padding:10px 12px;border-bottom:1px solid #e2e6ea;flex-shrink:0}
+.alp-label{font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.alp-scroll{overflow-y:auto;flex:1;padding:10px 12px}
+.alp-sec-label{font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+/* Right panel (CRM) */
+.agent-right{display:flex;flex-direction:column;overflow:hidden;background:#f8fafc}
+.crm-bar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#fff;border-bottom:1px solid #e2e6ea;flex-shrink:0}
+.crm-pill{font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.crm-pill-locked{background:#f1f5f9;color:#64748b;border:1px solid #e2e6ea}
+.crm-pill-unlocked{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.crm-wrap{flex:1;position:relative;overflow:hidden;min-height:0}
+.crm-overlay-div{position:absolute;inset:0;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;pointer-events:all;cursor:not-allowed;z-index:10}
+.crm-overlay-card{background:#fff;border:1px solid #e2e6ea;border-radius:14px;padding:28px 32px;text-align:center;max-width:280px;pointer-events:none}
+/* Live clock & refresh indicator */
+.live-clock{font-size:13px;font-weight:600;color:#374151;font-family:monospace;background:#f1f5f9;padding:4px 10px;border-radius:7px;white-space:nowrap}
+.refresh-indicator{display:flex;align-items:center;gap:5px;font-size:11px;color:#6b7280;white-space:nowrap}
+.rdot{width:7px;height:7px;border-radius:50%;background:#059669;flex-shrink:0;transition:background .2s}
+.rdot.syncing{background:#d97706;animation:sync-pulse .5s ease-in-out infinite}
+.rdot.done{background:#059669;animation:done-flash .4s ease-out}
+.rdot.error{background:#dc2626}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.7)}}
+@keyframes sync-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes done-flash{0%{transform:scale(1.8);opacity:.6}100%{transform:scale(1);opacity:1}}
+/* Loading overlay */
+#loading-screen{position:fixed;inset:0;background:#f4f6f9;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9998}
+#loading-screen .ls-icon{font-size:36px;margin-bottom:12px}
+#loading-screen p{font-size:14px;color:#6b7280;margin-top:6px}
+.ls-bar{width:200px;height:4px;background:#e2e6ea;border-radius:99px;margin-top:14px;overflow:hidden}
+.ls-fill{height:100%;background:#059669;border-radius:99px;animation:load-prog 1.2s ease-in-out infinite}
+@keyframes load-prog{0%{width:0}80%{width:90%}100%{width:100%}}
+@media(max-width:768px){
+  .grid2{grid-template-columns:1fr}
+  .stats-row,.report-summary{grid-template-columns:1fr 1fr}
+  .log-head,.log-entry{grid-template-columns:120px 85px 1fr}
+  .log-head span:nth-child(3),.log-head span:nth-child(4),.log-head span:nth-child(5),
+  .log-entry span:nth-child(3),.log-entry span:nth-child(4),.log-entry span:nth-child(5){display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Loading screen shown until first data arrives -->
+<div id="loading-screen">
+  <div class="ls-icon">📞</div>
+  <strong style="font-size:16px;color:#1a1a1a">Call Queue System</strong>
+  <p>Loading ECE Contact Centers…</p>
+  <div class="ls-bar"><div class="ls-fill"></div></div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<!-- ══ CALL ALERT MODAL ════════════════════════════════════════════════════ -->
+<div id="call-alert-modal" role="dialog" aria-modal="true" aria-labelledby="cal-title-text">
+  <div class="cal-card">
+    <div class="cal-ring">📞</div>
+    <p class="cal-title" id="cal-title-text">Incoming call</p>
+    <p class="cal-sub">You are next in queue. Please receive the call.</p>
+    <button class="cal-btn-receive" onclick="alertReceiveCall()">
+      📞 Call received
+    </button>
+    <br/>
+    <button class="cal-dismiss-link" onclick="showDismissForm()">Dismiss</button>
+
+    <!-- Avoidance form — hidden until dismiss clicked -->
+    <div class="cal-avoidance-form" id="cal-avoidance-form">
+      <label for="cal-note">Reason for dismissing <span style="color:#dc2626">*</span></label>
+      <textarea id="cal-note" rows="3" placeholder="Enter your reason (required)…" maxlength="300"></textarea>
+      <div class="cal-err" id="cal-note-err">Please enter a reason before dismissing.</div>
+      <button class="cal-btn-confirm-dismiss" onclick="confirmDismiss()">
+        Confirm dismiss &amp; go to bottom of queue
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ FIRST-TIME PASSWORD SETUP MODAL ═══════════════════════════════════ -->
+<div id="first-time-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <div class="modal-title">🔐 Welcome! Set up your account</div>
+    <div class="modal-sub">This is your first login. Please set a new password and a security question before continuing.</div>
+    <div class="m-form-row">
+      <label>New password <span style="color:#dc2626">*</span></label>
+      <input type="password" id="ft-pass" placeholder="Enter new password (min 6 characters)"/>
+    </div>
+    <div class="m-form-row">
+      <label>Confirm password <span style="color:#dc2626">*</span></label>
+      <input type="password" id="ft-pass2" placeholder="Confirm new password"/>
+    </div>
+    <div class="m-form-row">
+      <label>Security question <span style="color:#dc2626">*</span></label>
+      <select id="ft-sq">
+        <option value="">Select a security question…</option>
+        <option>What is the name of your first pet?</option>
+        <option>What city were you born in?</option>
+        <option>What is your mother's maiden name?</option>
+      </select>
+    </div>
+    <div class="m-form-row">
+      <label>Your answer <span style="color:#dc2626">*</span></label>
+      <input type="text" id="ft-sa" placeholder="Enter your answer (case-insensitive)"/>
+    </div>
+    <div class="m-err" id="ft-err"></div>
+    <button class="m-btn m-btn-green" id="ft-btn" onclick="submitFirstTimeSetup()">✔ Complete setup</button>
+  </div>
+</div>
+
+<!-- ══ FORGOT PASSWORD MODAL ════════════════════════════════════════════ -->
+<div id="forgot-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <div class="modal-title">🔑 Forgot password</div>
+    <div class="modal-sub">Enter your username and answer your security question to reset your password.</div>
+
+    <!-- Step 1: username -->
+    <div id="fp-step1">
+      <div class="m-form-row">
+        <label>Username</label>
+        <input type="text" id="fp-user" placeholder="Enter your username"/>
+      </div>
+      <div class="m-err" id="fp-err1"></div>
+      <button class="m-btn m-btn-blue" onclick="fpGetQuestion()">Next</button>
+      <button class="m-btn m-btn-ghost" onclick="closeForgot()">Cancel</button>
+    </div>
+
+    <!-- Step 2: answer question -->
+    <div id="fp-step2" style="display:none">
+      <div class="m-form-row">
+        <label>Security question</label>
+        <p id="fp-question" style="font-size:14px;font-weight:600;color:#1a1a1a;padding:8px 0"></p>
+      </div>
+      <div class="m-form-row">
+        <label>Your answer</label>
+        <input type="text" id="fp-answer" placeholder="Enter your answer"/>
+      </div>
+      <div class="m-form-row">
+        <label>New password</label>
+        <input type="password" id="fp-newpass" placeholder="Enter new password (min 6 characters)"/>
+      </div>
+      <div class="m-form-row">
+        <label>Confirm password</label>
+        <input type="password" id="fp-newpass2" placeholder="Confirm new password"/>
+      </div>
+      <div class="m-err" id="fp-err2"></div>
+      <button class="m-btn m-btn-green" onclick="fpResetPassword()">Reset password</button>
+      <button class="m-btn m-btn-ghost" onclick="closeForgot()">Cancel</button>
+    </div>
+
+    <!-- Step 3: success -->
+    <div id="fp-step3" style="display:none;text-align:center">
+      <div style="font-size:40px;margin-bottom:12px">✅</div>
+      <p style="font-size:16px;font-weight:700;color:#059669;margin-bottom:8px">Password reset successfully!</p>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">You can now sign in with your new password.</p>
+      <button class="m-btn m-btn-ghost" onclick="closeForgot()">Back to login</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PROFILE SETTINGS MODAL ═══════════════════════════════════════════ -->
+<div id="profile-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <div class="modal-title">⚙️ Profile settings</div>
+    <div class="modal-sub">Change your password or update your security question.</div>
+
+    <!-- Change password -->
+    <div style="border-bottom:1px solid #e2e6ea;padding-bottom:16px;margin-bottom:16px">
+      <p style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:12px">Change password</p>
+      <div class="m-form-row">
+        <label>Current password</label>
+        <input type="password" id="prof-curpass" placeholder="Enter current password"/>
+      </div>
+      <div class="m-form-row">
+        <label>New password</label>
+        <input type="password" id="prof-newpass" placeholder="Enter new password"/>
+      </div>
+      <div class="m-form-row">
+        <label>Confirm new password</label>
+        <input type="password" id="prof-newpass2" placeholder="Confirm new password"/>
+      </div>
+      <div class="m-err" id="prof-pass-err"></div>
+      <div class="m-success" id="prof-pass-ok"></div>
+      <button class="btn btn-primary" onclick="profChangePass()" style="width:100%">Update password</button>
+    </div>
+
+    <!-- Change security Q&A -->
+    <div>
+      <p style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:12px">Change security question</p>
+      <div class="m-form-row">
+        <label>Current password (required)</label>
+        <input type="password" id="prof-sqpass" placeholder="Enter current password"/>
+      </div>
+      <div class="m-form-row">
+        <label>Security question</label>
+        <select id="prof-sq">
+          <option value="">Select a security question…</option>
+          <option>What is the name of your first pet?</option>
+          <option>What city were you born in?</option>
+          <option>What is your mother's maiden name?</option>
+        </select>
+      </div>
+      <div class="m-form-row">
+        <label>Your answer</label>
+        <input type="text" id="prof-sa" placeholder="Enter your answer"/>
+      </div>
+      <div class="m-err" id="prof-sq-err"></div>
+      <div class="m-success" id="prof-sq-ok"></div>
+      <button class="btn btn-primary" onclick="profChangeSQ()" style="width:100%">Update security question</button>
+    </div>
+
+    <button class="m-btn m-btn-ghost" onclick="closeProfile()" style="margin-top:16px">Close</button>
+  </div>
+</div>
+
+<!-- ══ BULK UPLOAD MODAL ════════════════════════════════════════════════ -->
+<div id="bulk-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title">📤 Bulk upload agents</div>
+    <div class="modal-sub">Upload a CSV file with format: <code>Name, Username, Role</code><br>All agents get default password <b>admin123</b> and must change it on first login.</div>
+    <div class="m-form-row">
+      <label>Select CSV file</label>
+      <input type="file" id="bulk-file" accept=".csv" onchange="parseBulkFile()" style="padding:8px;border:1px solid #d1d5db;border-radius:7px;width:100%;font-size:13px;background:#fff"/>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;margin-top:-8px;margin-bottom:10px">CSV format: one row per agent — <code>Name, Username, Role</code> (header row is auto-skipped if detected)</p>
+    <div id="bulk-preview-area" style="display:none">
+      <div class="bulk-preview">
+        <div class="bulk-row bulk-head"><span>Name</span><span>Username</span><span>Role</span></div>
+        <div id="bulk-preview-rows"></div>
+      </div>
+      <p id="bulk-count" style="font-size:12px;color:#6b7280;margin-top:6px"></p>
+      <div class="m-err" id="bulk-err"></div>
+      <button class="m-btn m-btn-green" id="bulk-submit-btn" onclick="submitBulkUpload()" style="margin-top:10px">✔ Create all agents</button>
+    </div>
+    <button class="m-btn m-btn-ghost" onclick="closeBulk()">Cancel</button>
+  </div>
+</div>
+
+<!-- ══ LOGIN ═════════════════════════════════════════════════════════ -->
+<div id="s-login" class="screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon">📞</div>
+      <h2>Call Queue System</h2>
+      <p>ECE Contact Centers</p>
+    </div>
+    <div class="form-row">
+      <label>Username</label>
+      <input type="text" id="inp-user" placeholder="Enter your username" autocomplete="username"/>
+    </div>
+    <div class="form-row">
+      <label>Password</label>
+      <input type="password" id="inp-pass" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <div id="login-err" class="err-msg" style="display:none"></div>
+    <button class="btn btn-primary btn-full" id="btn-login" onclick="doLogin()">Sign in</button>
+    <div style="display:flex;justify-content:center;margin-top:12px">
+      <button style="font-size:12px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline" onclick="openForgot()">Forgot password?</button>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px">Default password: admin123 (you'll change it on first login)</p>
+  </div>
+</div>
+
+<!-- ══ AGENT VIEW ═════════════════════════════════════════════════════ -->
+<div id="s-agent" class="screen">
+  <div class="agent-shell">
+
+    <!-- ── Top bar ── -->
+    <div class="agent-topbar">
+      <div style="font-size:16px;flex-shrink:0">📞</div>
+      <h1 style="font-size:15px;font-weight:600;color:#1a1a1a;flex-shrink:0">Call Queue</h1>
+      <span id="ag-status-badge" class="badge b-avail"></span>
+      <span id="ag-name-label" style="font-size:13px;font-weight:600;color:#374151"></span>
+      <div class="live-clock" id="ag-clock">--:--:--</div>
+      <div class="refresh-indicator">
+        <div class="rdot" id="ag-rdot"></div>
+        <span id="ag-last-refresh" style="font-size:11px;color:#6b7280">Loading…</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="manualRefreshAgent()">↻ Refresh</button>
+      <button class="btn btn-ghost btn-sm" onclick="openProfile()">⚙️ Profile</button>
+      <div id="ag-avatar" class="avatar"></div>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sign out</button>
+    </div>
+
+    <!-- ── Body: left panel + right CRM ── -->
+    <div class="agent-body">
+
+      <!-- LEFT: compact queue panel -->
+      <div class="agent-left">
+
+        <div class="alp-section">
+          <div class="alp-label">My status</div>
+          <select id="ag-aux-sel" onchange="agentChangeAux(this.value)" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1a1a1a;outline:none"></select>
+          <p style="font-size:10px;color:#94a3b8;margin-top:4px">Only you can change your own status</p>
+        </div>
+
+        <div class="alp-scroll">
+          <div class="alp-sec-label">
+            🔢 Queue
+            <span id="ag-next-tag" style="font-size:10px;font-weight:600;background:#dbeafe;color:#1e40af;padding:1px 7px;border-radius:99px;margin-left:4px"></span>
+          </div>
+          <div id="ag-queue-list"></div>
+          <div id="ag-oncall-area"></div>
+          <div id="ag-offqueue"></div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Aircall CRM iframe -->
+      <div class="agent-right">
+
+        <!-- CRM header bar -->
+        <div class="crm-bar">
+          <span style="font-size:12px;font-weight:600;color:#6b7280;flex-shrink:0">Aircall</span>
+          <span style="font-size:11px;color:#94a3b8;font-family:monospace;background:#f8fafc;padding:2px 8px;border-radius:5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">https://workspace.aircall.io</span>
+          <button class="btn btn-ghost btn-sm" onclick="refreshAircall()">↻ Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="window.open('https://workspace.aircall.io','_blank')">↗ Open in new tab</button>
+          <span id="crm-status-pill" class="crm-pill crm-pill-locked">
+            <i class="ti ti-lock" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i>
+            Locked
+          </span>
+        </div>
+
+        <!-- iframe + overlay wrapper -->
+        <div class="crm-wrap">
+          <iframe id="ag-crm-iframe"
+            src="https://workspace.aircall.io"
+            title="Aircall Workspace"
+            allow="microphone *; camera *; autoplay *; clipboard-write *; clipboard-read *; display-capture *; encrypted-media *; fullscreen *"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+            style="width:100%;height:100%;border:none;display:block">
+          </iframe>
+
+          <!-- Overlay — covers iframe when locked -->
+          <div id="crm-overlay" class="crm-overlay-div">
+            <div class="crm-overlay-card">
+              <div style="font-size:22px;margin-bottom:8px">🔒</div>
+              <p id="crm-overlay-title" style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px">Waiting for your turn</p>
+              <p id="crm-overlay-sub" style="font-size:12px;color:#6b7280;line-height:1.5">Aircall unlocks when you reach position #1 in the queue.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADMIN VIEW ════════════════════════════════════════════════════ -->
+<div id="s-admin" class="screen">
+  <div class="page-wrap">
+    <div class="top-bar">
+      <div>🛡️</div>
+      <h1>Supervisor dashboard</h1>
+      <span class="badge b-admin">Supervisor</span>
+      <div class="live-clock" id="adm-clock">--:--:--</div>
+      <div class="refresh-indicator">
+        <div class="rdot" id="adm-rdot"></div>
+        <span id="adm-last-refresh">Loading…</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="manualRefreshAdmin()">↻ Refresh all</button>
+      <button class="btn btn-ghost btn-sm" id="adm-pause-btn" onclick="toggleSyncPause('admin')">⏸ Pause</button>
+      <div class="avatar admin-av" id="adm-avatar"></div>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sign out</button>
+    </div>
+
+    <div id="alert-banner" class="alert-banner">
+      <span id="alert-icon">⚠️</span>
+      <span id="alert-msg" style="flex:1"></span>
+      <button class="btn btn-ghost btn-sm" onclick="dismissAlert()">Dismiss</button>
+    </div>
+
+    <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-box"><div id="s-avail" class="stat-n">—</div><div class="stat-l">Available</div></div>
+      <div class="stat-box"><div id="s-oncall" class="stat-n">—</div><div class="stat-l">On call</div></div>
+      <div class="stat-box"><div id="s-break" class="stat-n">—</div><div class="stat-l">Break</div></div>
+      <div class="stat-box"><div id="s-lunch" class="stat-n">—</div><div class="stat-l">Lunch</div></div>
+    </div>
+    <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-top:-0.75rem">
+      <div class="stat-box"><div id="s-coaching" class="stat-n">—</div><div class="stat-l">Coaching</div></div>
+      <div class="stat-box"><div id="s-meeting" class="stat-n">—</div><div class="stat-l">Meeting</div></div>
+      <div class="stat-box"><div id="s-outbound" class="stat-n">—</div><div class="stat-l">Outbound</div></div>
+      <div class="stat-box"><div id="s-notavail" class="stat-n">—</div><div class="stat-l">Not available</div></div>
+      <div class="stat-box"><div id="s-eos" class="stat-n">—</div><div class="stat-l">End of shift</div></div>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="nav-tab active" onclick="adminTab(this,'tab-queue')">🔢 Live queue</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-aux')">🎛️ AUX override</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-logs')">📋 Logs</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-reports')">📊 Reports</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-settings')">⚙️ Settings</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-accounts')">👥 Accounts</button>
+    </div>
+
+    <!-- TAB: Queue -->
+    <div id="tab-queue" class="adm-tab">
+      <!-- Table 1: Available queue + On Call -->
+      <div class="card">
+        <div class="card-title">🔢 Available queue</div>
+        <div class="sec-label">Round robin order — supervisor can mark calls on behalf of any agent</div>
+        <div id="adm-queue-list"></div>
+        <div id="adm-oncall-area" style="margin-top:6px"></div>
+      </div>
+
+      <!-- Table 2: Not in queue with status filter -->
+      <div class="card">
+        <div class="card-title">📋 Not in queue</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
+          <span style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-right:4px">Filter:</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Break" checked onchange="renderAdminOffQueue()"/> Break</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Lunch" checked onchange="renderAdminOffQueue()"/> Lunch</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Coaching" checked onchange="renderAdminOffQueue()"/> Coaching</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Meeting" checked onchange="renderAdminOffQueue()"/> Meeting</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Outbound Call" checked onchange="renderAdminOffQueue()"/> Outbound</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="Not Available" checked onchange="renderAdminOffQueue()"/> Not Available</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="End of Shift" checked onchange="renderAdminOffQueue()"/> End of Shift</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
+            <input type="checkbox" class="offq-filter-cb" value="On Call" checked onchange="renderAdminOffQueue()"/> On Call</label>
+        </div>
+        <div id="adm-offqueue"></div>
+        <div id="adm-offqueue-count" style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right"></div>
+      </div>
+    </div>
+
+    <!-- TAB: AUX Override -->
+    <div id="tab-aux" class="adm-tab" style="display:none">
+      <div class="card">
+        <div class="card-title">🎛️ AUX override — all agents</div>
+        <div class="sec-label">Change any agent's status directly, or select multiple for bulk change</div>
+
+        <!-- Bulk action bar -->
+        <div id="bulk-aux-bar" style="display:none;background:#f8fafc;border:1px solid #e2e6ea;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap">
+          <span id="bulk-aux-count" style="font-size:13px;font-weight:600;color:#374151">0 selected</span>
+          <select id="bulk-aux-status" style="width:auto;min-width:160px;font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px">
+            <option value="">Change status to…</option>
+            <option value="Available">Available</option>
+            <option value="Break">Break</option>
+            <option value="Lunch">Lunch</option>
+            <option value="Coaching">Coaching</option>
+            <option value="Meeting">Meeting</option>
+            <option value="Outbound Call">Outbound Call</option>
+            <option value="Not Available">Not Available</option>
+            <option value="End of Shift">End of Shift</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="applyBulkAux()">✔ Apply to selected</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearBulkAuxSelection()">Clear selection</button>
+        </div>
+
+        <!-- Select all -->
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #e2e6ea;margin-bottom:4px">
+          <input type="checkbox" id="aux-select-all" onchange="toggleAllAuxCheckboxes(this.checked)" style="width:16px;height:16px;cursor:pointer"/>
+          <label for="aux-select-all" style="font-size:12px;font-weight:600;color:#6b7280;cursor:pointer">Select all agents</label>
+        </div>
+
+        <div id="adm-aux-list"></div>
+      </div>
+    </div>
+
+    <!-- TAB: Logs -->
+    <div id="tab-logs" class="adm-tab" style="display:none">
+      <div class="card">
+        <div class="card-title">📋 Full activity log</div>
+        <div class="export-bar">
+          <label style="font-size:12px;font-weight:600;color:#374151;white-space:nowrap">From:</label>
+          <input type="date" id="exp-from"/>
+          <label style="font-size:12px;font-weight:600;color:#374151;white-space:nowrap">To:</label>
+          <input type="date" id="exp-to"/>
+          <button class="btn btn-ghost btn-sm" onclick="filterLogs()">🔍 Filter</button>
+          <button class="btn btn-primary btn-sm" onclick="exportLogsCSV()">⬇ Export CSV</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshLogs()">↻ Refresh</button>
+        </div>
+        <div class="log-head">
+          <span>Date &amp; time</span><span>Agent</span><span>From</span><span>To</span><span>Duration</span><span>Event / note</span>
+        </div>
+        <div class="log-wrap" id="adm-log-list"></div>
+        <div id="log-count" style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:right"></div>
+      </div>
+    </div>
+
+    <!-- TAB: Reports -->
+    <div id="tab-reports" class="adm-tab" style="display:none">
+      <div class="card">
+        <div class="card-title">📊 Select report period</div>
+        <div class="rpt-bar">
+          <label style="font-size:12px;font-weight:600;color:#374151;white-space:nowrap">From:</label>
+          <input type="date" id="rpt-from"/>
+          <label style="font-size:12px;font-weight:600;color:#374151;white-space:nowrap">To:</label>
+          <input type="date" id="rpt-to"/>
+          <button class="btn btn-primary" id="btn-gen-report" onclick="generateReports()">📊 Generate report</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportReportCSV()">⬇ Export CSV</button>
+        </div>
+        <p id="rpt-status" style="font-size:12px;color:#94a3b8">Select a date range and click Generate report.</p>
+      </div>
+      <div id="rpt-content" style="display:none">
+        <div id="rpt-summary" class="report-summary"></div>
+        <div class="card" style="margin-bottom:1rem">
+          <div class="card-title">👤 Per-agent breakdown</div>
+          <div class="report-agent-row report-head">
+            <span>Agent</span><span>Calls</span><span>Avg duration</span><span>Available time</span><span>Break time</span><span>Away time</span>
+          </div>
+          <div id="rpt-agent-table"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🗓️ Calls heatmap <span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px">calls per hour (up to 14 days)</span></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;color:#6b7280;align-items:center">
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#f8fafc;border:1px solid #e2e6ea;vertical-align:middle"></span> 0</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#d1fae5;vertical-align:middle"></span> 1–2</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#6ee7b7;vertical-align:middle"></span> 3–5</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#059669;vertical-align:middle"></span> 6–9</span>
+            <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#065f46;vertical-align:middle"></span> 10+</span>
+          </div>
+          <div class="heatmap-wrap" id="rpt-heatmap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Settings -->
+    <div id="tab-settings" class="adm-tab" style="display:none">
+      <div class="card">
+        <div class="card-title">⚙️ Queue thresholds</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Alerts fire when any condition is met.</p>
+        <div class="threshold-row">
+          <label>🔴 Empty queue alert — trigger when 0 agents available</label>
+          <select id="thr-empty" style="width:auto;min-width:120px">
+            <option value="1">Enabled</option><option value="0">Disabled</option>
+          </select>
+        </div>
+        <div class="threshold-row">
+          <label>⏱️ Max queue wait — alert if top agent waiting longer than</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-wait" value="5" min="1" max="120" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>🔔 Re-alert interval — how often to re-notify if breach persists</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-interval" value="3" min="1" max="60" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⏱️ AUX duration thresholds</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Alert when an agent exceeds the time limit for any status. Timer turns red on breach.</p>
+        <div class="threshold-row">
+          <label>📞 On Call duration</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-oncall" value="10" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>☕ Break</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-break" value="15" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>🍽️ Lunch</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-lunch" value="30" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>📋 Coaching</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-coaching" value="30" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>🤝 Meeting</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-meeting" value="60" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>📱 Outbound Call</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-outbound" value="10" min="1" max="999" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveThresholds()">💾 Save all settings</button>
+        <button class="btn btn-ghost" onclick="testNotification()">🔔 Test notification</button>
+      </div>
+    </div>
+
+    <!-- TAB: Accounts -->
+    <div id="tab-accounts" class="adm-tab" style="display:none">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <div class="card-title" style="margin:0;flex:1">👥 Agent accounts</div>
+          <button class="btn btn-ghost btn-sm" onclick="openBulk()">📤 Bulk upload</button>
+          <button class="btn btn-primary btn-sm" onclick="openAddAgent()">+ Add agent</button>
+        </div>
+        <div class="agent-tbl-head"><span>Name</span><span>Username</span><span>Role</span><span>Status</span><span>Actions</span></div>
+        <div id="adm-agent-table"></div>
+      </div>
+      <div id="agent-form-card" class="card" style="display:none">
+        <div class="card-title" id="agent-form-title">Add agent</div>
+        <div class="form-grid">
+          <div class="form-row"><label>Full name</label><input type="text" id="af-name" placeholder="e.g. Maria Santos"/></div>
+          <div class="form-row"><label>Username</label><input type="text" id="af-user" placeholder="e.g. maria.santos"/></div>
+          <div class="form-row">
+            <label>Password <span id="af-pass-hint" style="font-weight:400;color:#6b7280;display:none">(blank = keep current)</span></label>
+            <input type="password" id="af-pass" placeholder="Set password"/>
+          </div>
+          <div class="form-row"><label>Role</label>
+            <select id="af-role"><option value="agent">Agent</option><option value="admin">Supervisor</option></select>
+          </div>
+        </div>
+        <div id="af-err" class="err-msg" style="display:none"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-ghost" onclick="closeAgentForm()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveAgent()">Save agent</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// API CONFIG — REPLACE THIS WITH YOUR APPS SCRIPT WEB APP URL
+// ══════════════════════════════════════════════════════════════════════════════
+var APPS_SCRIPT_URL = '/api';  // Vercel API endpoint — same domain so no CORS issues
+
+// API call helper — uses GET with query params (Apps Script-friendly, no CORS preflight)
+function apiCall(fnName, params, onSuccess, onFailure) {
+  var qs = 'fn=' + encodeURIComponent(fnName);
+  if(params){
+    for(var k in params){
+      if(params.hasOwnProperty(k) && params[k] !== undefined){
+        var v = params[k];
+        // Stringify objects/arrays
+        if(typeof v === 'object' && v !== null) v = JSON.stringify(v);
+        qs += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(v);
+      }
+    }
+  }
+  var url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.indexOf('?')>=0 ? '&' : '?') + qs;
+
+  fetch(url, { method: 'GET', mode: 'cors', redirect: 'follow' })
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.text();
+    })
+    .then(function(txt){
+      if(txt.indexOf('<') === 0){
+        throw new Error('Server returned HTML. Apps Script deployment must be set to access: Anyone.');
+      }
+      return JSON.parse(txt);
+    })
+    .then(function(res){
+      if (res.error) {
+        if (onFailure) onFailure(new Error(res.error));
+      } else {
+        if (onSuccess) onSuccess(res.data);
+      }
+    })
+    .catch(function(err){
+      if (onFailure) onFailure(err);
+    });
+}
+
+// Drop-in replacement for google.script.run — same chained API
+window.google = window.google || {};
+window.google.script = window.google.script || {};
+window.google.script.run = {
+  _success: null,
+  _failure: null,
+  withSuccessHandler: function(fn){ this._success = fn; return this; },
+  withFailureHandler: function(fn){ this._failure = fn; return this; },
+  _call: function(fnName, args){
+    var self = this;
+    var s = this._success, f = this._failure;
+    this._success = null; this._failure = null;
+    apiCall(fnName, args, s, f);
+  }
+};
+
+// Auto-generate proxy methods for every backend function
+[
+  'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
+  'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
+  'markCallEnded','logCallAvoidance','createAgent','updateAgent','deleteAgent',
+  'bulkSetStatus','bulkCreateAgents','getAllAgents','getInitialData','getLogs',
+  'getLogsByDateRange','getAgentAuxSummary'
+].forEach(function(fn){
+  window.google.script.run[fn] = function(){
+    var args = Array.prototype.slice.call(arguments);
+    var params = _mapArgsToParams(fn, args);
+    this._call(fn, params);
+  };
+});
+
+// Map positional args to named params (matches Code.gs handleApiRequest signature)
+function _mapArgsToParams(fn, args){
+  var maps = {
+    login:                       ['username','password'],
+    agentLogout:                 ['agentId'],
+    forceChangePassword:         ['agentId','newPassword','securityQuestion','securityAnswer'],
+    changePassword:              ['agentId','currentPassword','newPassword'],
+    changeSecurityQA:            ['agentId','currentPassword','securityQuestion','securityAnswer'],
+    getSecurityQuestion:         ['username'],
+    resetPasswordWithSecurity:   ['username','securityAnswer','newPassword'],
+    setMyStatus:                 ['agentId','newStatus','callerRole'],
+    markCallReceived:            ['agentId','callerRole'],
+    markCallEnded:               ['agentId','callerRole'],
+    logCallAvoidance:            ['agentId','note'],
+    createAgent:                 ['name','username','password','role'],
+    updateAgent:                 ['agentId','name','username','password','role'],
+    deleteAgent:                 ['agentId'],
+    bulkSetStatus:               ['agentIds','newStatus'],
+    bulkCreateAgents:            ['rows'],
+    getAllAgents:                [],
+    getInitialData:              ['logLimit'],
+    getLogs:                     ['limit'],
+    getLogsByDateRange:          ['from','to'],
+    getAgentAuxSummary:          ['from','to']
+  };
+  var keys = maps[fn] || [];
+  var p = {};
+  keys.forEach(function(k, i){ p[k] = args[i]; });
+  return p;
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+var currentUser    = null;
+var allAgents      = [];
+var allLogs        = [];
+var filteredLogs   = [];
+var reportLogs     = [];
+var auxSummary     = {};
+var editingId      = null;
+var agentTimer     = null;
+var adminTimer     = null;
+var clockTimer     = null;
+var timerTick      = null;
+var _agentPolling  = false;  // prevents overlapping agent polls
+var _adminPolling  = false;  // prevents overlapping admin polls
+var _syncPaused    = false;  // pause/resume sync toggle
+var lastAlertTs    = 0;
+var alertDismissed = false;
+var thresholds = { emptyQueue:1, maxWaitMin:5, reAlertMin:3, onCallMin:10, breakMin:15, lunchMin:30, coachingMin:30, meetingMin:60, outboundMin:10 };
+
+// ── Formatters ──────────────────────────────────────────────────────────────
+function initials(n){ return (n||'').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); }
+function statusBadgeClass(s){
+  if(s==='Available')     return 'b-avail';
+  if(s==='On Call')       return 'b-oncall';
+  if(s==='Break')         return 'b-break';
+  if(s==='Lunch')         return 'b-lunch';
+  if(s==='Coaching')      return 'b-coaching';
+  if(s==='Meeting')       return 'b-meeting';
+  if(s==='Outbound Call') return 'b-outbound';
+  if(s==='Not Available') return 'b-notavail';
+  if(s==='End of Shift')  return 'b-eos';
+  return 'b-away';
+}
+function fmtSecs(s){
+  s=Math.max(0,Math.floor(s||0));
+  var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  var p=function(n){return String(n).padStart(2,'0');};
+  return h>0?p(h)+':'+p(m)+':'+p(sec):p(m)+':'+p(sec);
+}
+function fmtDuration(sec){
+  sec=Math.round(sec||0);
+  if(!sec)return '—';
+  if(sec<60)return sec+'s';
+  if(sec<3600)return Math.floor(sec/60)+'m '+(sec%60)+'s';
+  return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';
+}
+function fmtHours(sec){
+  sec=Math.round(sec||0);
+  if(!sec)return '0m';
+  if(sec<3600)return Math.floor(sec/60)+'m';
+  var h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60);
+  return h+'h'+(m>0?' '+m+'m':'');
+}
+function fmtDatetime(d){
+  var p=function(n){return String(n).padStart(2,'0');};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+
+         ' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+function toast(msg,type){
+  var wrap=document.getElementById('toast-wrap');
+  var t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;
+  wrap.appendChild(t);
+  requestAnimationFrame(function(){t.classList.add('show');});
+  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},250);},3000);
+}
+function show(id){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
+  document.getElementById(id).classList.add('active');
+}
+function getQueue(){ return allAgents.filter(function(a){return a.status==='Available'&&a.role==='agent';}).sort(function(a,b){return new Date(a.queueJoin)-new Date(b.queueJoin);}); }
+function getOnCall(){ return allAgents.filter(function(a){return a.status==='On Call'&&a.role==='agent';}); }
+var AUX_STATUSES = ['Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
+function getOff(){ return allAgents.filter(function(a){return AUX_STATUSES.indexOf(a.status)!==-1 && a.role==='agent';}); }
+
+// ── Live clock ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIFIED TICK — one setInterval drives clock + all timers + progress bars
+// Starts immediately on page load, never stops, always finds fresh DOM elements
+// ══════════════════════════════════════════════════════════════════════════════
+var _tickStarted = false;
+function ensureTickRunning(){
+  if(_tickStarted) return;
+  _tickStarted = true;
+
+  // Map statuses to their threshold keys
+  var _thrKeys = {'On Call':'onCallMin','Break':'breakMin','Lunch':'lunchMin',
+    'Coaching':'coachingMin','Meeting':'meetingMin','Outbound Call':'outboundMin'};
+
+  setInterval(function(){
+    var now = Date.now();
+    var nowD = new Date(now);
+    var p = function(n){ return String(n).padStart(2,'0'); };
+    var str = nowD.getFullYear()+'-'+p(nowD.getMonth()+1)+'-'+p(nowD.getDate())
+              +' '+p(nowD.getHours())+':'+p(nowD.getMinutes())+':'+p(nowD.getSeconds());
+    var ag  = document.getElementById('ag-clock');
+    var adm = document.getElementById('adm-clock');
+    if(ag)  ag.textContent  = str;
+    if(adm) adm.textContent = str;
+
+    // All live timers
+    document.querySelectorAll('[data-start]').forEach(function(el){
+      var start = parseInt(el.getAttribute('data-start'),10);
+      if(isNaN(start)) return;
+      var elapsed = (now - start) / 1000;
+      el.textContent = fmtSecs(elapsed);
+
+      // Check threshold — if data-status is set, compare against threshold
+      var status = el.getAttribute('data-status');
+      if(status && _thrKeys[status]){
+        var limitMin = thresholds[_thrKeys[status]] || 999;
+        if(elapsed/60 >= limitMin){
+          el.style.color = '#dc2626';
+          el.style.fontWeight = '700';
+          el.style.background = '#fee2e2';
+          el.style.borderRadius = '99px';
+          el.style.padding = '1px 6px';
+        } else {
+          el.style.color = '';
+          el.style.fontWeight = '';
+          el.style.background = '';
+          el.style.padding = '';
+        }
+      }
+    });
+
+    // Queue progress bars
+    document.querySelectorAll('.queue-time-bar').forEach(function(bar){
+      var row    = bar.parentElement;
+      var timer  = row ? row.querySelector('[data-start]') : null;
+      if(!timer) return;
+      var ws  = Math.floor((now - parseInt(timer.getAttribute('data-start'),10)) / 1000);
+      var pct = Math.min((ws / (thresholds.maxWaitMin * 60)) * 100, 100);
+      var fill = bar.querySelector('.queue-time-fill');
+      if(fill){
+        fill.style.width = Math.round(pct) + '%';
+        fill.className = 'queue-time-fill' + (pct>=80?' crit':pct>=50?' warn':'');
+      }
+    });
+  }, 1000);
+}
+
+// ── Syncing indicator helpers ────────────────────────────────────────────────
+function setSyncing(role){
+  var dot = document.getElementById(role==='admin'?'adm-rdot':'ag-rdot');
+  var txt = document.getElementById(role==='admin'?'adm-last-refresh':'ag-last-refresh');
+  if(dot){ dot.className='rdot syncing'; }
+  if(txt){ txt.textContent='Syncing…'; txt.style.color='#d97706'; }
+}
+function setRefreshed(role){
+  var dot = document.getElementById(role==='admin'?'adm-rdot':'ag-rdot');
+  var txt = document.getElementById(role==='admin'?'adm-last-refresh':'ag-last-refresh');
+  if(dot){
+    dot.className='rdot done';
+    setTimeout(function(){ dot.className='rdot'; },600);
+  }
+  if(txt){
+    var d=new Date();
+    txt.textContent='Synced '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+    txt.style.color='#059669';
+    setTimeout(function(){ txt.style.color='#6b7280'; },1500);
+  }
+}
+function setRefreshError(role){
+  var dot = document.getElementById(role==='admin'?'adm-rdot':'ag-rdot');
+  var txt = document.getElementById(role==='admin'?'adm-last-refresh':'ag-last-refresh');
+  if(dot){ dot.className='rdot error'; setTimeout(function(){dot.className='rdot';},3000); }
+  if(txt){ txt.textContent='Sync failed'; txt.style.color='#dc2626'; }
+}
+
+// ── Pause / Resume sync ──────────────────────────────────────────────────────
+function toggleSyncPause(role){
+  _syncPaused = !_syncPaused;
+
+  var agBtn  = document.getElementById('ag-pause-btn');
+  var admBtn = document.getElementById('adm-pause-btn');
+  var agDot  = document.getElementById('ag-rdot');
+  var admDot = document.getElementById('adm-rdot');
+  var agTxt  = document.getElementById('ag-last-refresh');
+  var admTxt = document.getElementById('adm-last-refresh');
+
+  if(_syncPaused){
+    // Stop all polls
+    if(agentTimer) clearTimeout(agentTimer);
+    if(adminTimer) clearTimeout(adminTimer);
+    _agentPolling = false;
+    _adminPolling = false;
+
+    // Update UI
+    if(agBtn)  agBtn.innerHTML='▶ Resume';
+    if(admBtn) admBtn.innerHTML='▶ Resume';
+    if(agBtn)  agBtn.style.cssText+='background:#fef3c7;color:#92400e;border-color:#fbbf24';
+    if(admBtn) admBtn.style.cssText+='background:#fef3c7;color:#92400e;border-color:#fbbf24';
+    if(agDot)  agDot.className='rdot';
+    if(admDot) admDot.className='rdot';
+    if(agDot)  agDot.style.background='#d97706';
+    if(admDot) admDot.style.background='#d97706';
+    if(agTxt)  { agTxt.textContent='⏸ Paused'; agTxt.style.color='#d97706'; }
+    if(admTxt) { admTxt.textContent='⏸ Paused'; admTxt.style.color='#d97706'; }
+    toast('Sync paused','warning');
+  } else {
+    // Resume
+    if(agBtn)  { agBtn.innerHTML='⏸ Pause'; agBtn.style.cssText=''; }
+    if(admBtn) { admBtn.innerHTML='⏸ Pause'; admBtn.style.cssText=''; }
+    if(agDot)  agDot.style.background='';
+    if(admDot) admDot.style.background='';
+
+    // Restart the appropriate poll
+    if(currentUser && currentUser.role==='agent') scheduleAgentPoll();
+    if(currentUser && currentUser.role==='admin') scheduleAdminPoll();
+    toast('Sync resumed','success');
+  }
+}
+
+// ── Overlapping poll scheduler ────────────────────────────────────────────────
+// 3s AFTER each response — total lag = round-trip + 3s
+// Uses getAllAgents() — reliable, always deployed, no function-not-found risk
+// On any error: waits 5s then retries — loop never dies
+
+function scheduleAgentPoll(){
+  if(!currentUser || currentUser.role==='admin') return;
+  if(agentTimer) clearTimeout(agentTimer);
+  if(_syncPaused) return; // paused — don't schedule
+  agentTimer = setTimeout(function(){
+    if(_agentPolling){ scheduleAgentPoll(); return; }
+    _agentPolling = true;
+    setSyncing('agent');
+
+    // Watchdog — if no response in 10s, force-reset and retry
+    var watchdog = setTimeout(function(){
+      _agentPolling = false;
+      setRefreshError('agent');
+      scheduleAgentPoll();
+    }, 10000);
+
+    google.script.run
+      .withSuccessHandler(function(agents){
+        clearTimeout(watchdog);
+        _agentPolling = false;
+        try {
+          if(agents && agents.length){
+            allAgents = agents;
+            renderAgentView();
+            setRefreshed('agent');
+          }
+        } catch(e){}
+        scheduleAgentPoll();
+      })
+      .withFailureHandler(function(){
+        clearTimeout(watchdog);
+        _agentPolling = false;
+        setRefreshError('agent');
+        agentTimer = setTimeout(function(){ scheduleAgentPoll(); }, 5000);
+      })
+      .getAllAgents();
+  }, 3000);
+}
+
+function scheduleAdminPoll(){
+  if(!currentUser || currentUser.role!=='admin') return;
+  if(adminTimer) clearTimeout(adminTimer);
+  if(_syncPaused) return; // paused — don't schedule
+  adminTimer = setTimeout(function(){
+    if(_adminPolling){ scheduleAdminPoll(); return; }
+    _adminPolling = true;
+    setSyncing('admin');
+
+    // Watchdog — if no response in 10s, force-reset and retry
+    var watchdog = setTimeout(function(){
+      _adminPolling = false;
+      setRefreshError('admin');
+      scheduleAdminPoll();
+    }, 10000);
+
+    google.script.run
+      .withSuccessHandler(function(agents){
+        clearTimeout(watchdog);
+        _adminPolling = false;
+        try {
+          if(agents && agents.length){
+            allAgents = agents;
+            renderAdminQueue(); renderAdminAux(); renderAdminAgentTable();
+            updateStats(); checkBreaches();
+            setRefreshed('admin');
+          }
+        } catch(e){}
+        scheduleAdminPoll();
+      })
+      .withFailureHandler(function(){
+        clearTimeout(watchdog);
+        _adminPolling = false;
+        setRefreshError('admin');
+        adminTimer = setTimeout(function(){ scheduleAdminPoll(); }, 5000);
+      })
+      .getAllAgents();
+  }, 3000);
+}
+
+// ── Breach alerts ───────────────────────────────────────────────────────────
+function checkBreaches(){
+  if(!currentUser||currentUser.role!=='admin')return;
+  var q=getQueue(),now=Date.now(),msgs=[],isCrit=false;
+  // Queue breaches
+  if(thresholds.emptyQueue&&q.length===0&&allAgents.filter(function(a){return a.role==='agent';}).length>0){
+    msgs.push('🔴 Queue EMPTY — no available agents!');isCrit=true;
+  }
+  if(q.length>0&&q[0].queueJoin){
+    var wm=(now-new Date(q[0].queueJoin).getTime())/60000;
+    if(wm>=thresholds.maxWaitMin) msgs.push('⏱️ '+q[0].name+' waiting '+Math.floor(wm)+'m — over '+thresholds.maxWaitMin+'m');
+  }
+  // Per-agent AUX duration breaches
+  var threshMap={'On Call':thresholds.onCallMin,'Break':thresholds.breakMin,'Lunch':thresholds.lunchMin,
+    'Coaching':thresholds.coachingMin,'Meeting':thresholds.meetingMin,'Outbound Call':thresholds.outboundMin};
+  allAgents.filter(function(a){return a.role==='agent';}).forEach(function(a){
+    var limit=threshMap[a.status];if(!limit)return;
+    var startTs=(a.status==='On Call')?a.callStart:a.auxStart;if(!startTs)return;
+    var elapsed=(now-new Date(startTs).getTime())/60000;
+    if(elapsed>=limit) msgs.push('⚠️ '+a.name+' — '+a.status+' exceeded '+limit+'m ('+Math.floor(elapsed)+'m)');
+  });
+  var banner=document.getElementById('alert-banner');
+  if(msgs.length){
+    document.getElementById('alert-msg').textContent=msgs.join('   |   ');
+    banner.className='alert-banner active'+(isCrit?' critical':'');
+    alertDismissed=false;
+    if(now-lastAlertTs>thresholds.reAlertMin*60000){lastAlertTs=now;sendBrowserNotification(msgs.join(' | '));}
+  } else { if(!alertDismissed) banner.className='alert-banner'; }
+}
+function dismissAlert(){alertDismissed=true;document.getElementById('alert-banner').className='alert-banner';}
+function sendBrowserNotification(msg){
+  if(!('Notification' in window))return;
+  if(Notification.permission==='granted') new Notification('ECE Queue Alert',{body:msg});
+  else if(Notification.permission!=='denied') Notification.requestPermission().then(function(p){if(p==='granted') new Notification('ECE Queue Alert',{body:msg});});
+}
+function testNotification(){sendBrowserNotification('Test — breach notification working!');toast('Test notification sent','success');}
+function saveThresholds(){
+  thresholds.emptyQueue  =parseInt(document.getElementById('thr-empty').value)||1;
+  thresholds.maxWaitMin  =parseInt(document.getElementById('thr-wait').value)||5;
+  thresholds.reAlertMin  =parseInt(document.getElementById('thr-interval').value)||3;
+  thresholds.onCallMin   =parseInt(document.getElementById('thr-oncall').value)||10;
+  thresholds.breakMin    =parseInt(document.getElementById('thr-break').value)||15;
+  thresholds.lunchMin    =parseInt(document.getElementById('thr-lunch').value)||30;
+  thresholds.coachingMin =parseInt(document.getElementById('thr-coaching').value)||30;
+  thresholds.meetingMin  =parseInt(document.getElementById('thr-meeting').value)||60;
+  thresholds.outboundMin =parseInt(document.getElementById('thr-outbound').value)||10;
+  toast('Settings saved','success');
+}
+
+// ── Login ───────────────────────────────────────────────────────────────────
+function doLogin(){
+  var u=document.getElementById('inp-user').value.trim();
+  var p=document.getElementById('inp-pass').value;
+  var err=document.getElementById('login-err');err.style.display='none';
+  if(!u||!p){err.textContent='Please enter username and password.';err.style.display='block';return;}
+  var btn=document.getElementById('btn-login');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Signing in…';
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false;btn.innerHTML='Sign in';
+      if(!res.success){err.textContent='Invalid username or password.';err.style.display='block';return;}
+      currentUser=res.agent;
+      // Check if first-time login (password not changed from default)
+      if(!currentUser.passwordChanged && currentUser.role !== 'admin'){
+        document.getElementById('loading-screen').style.display='none';
+        document.getElementById('first-time-modal').classList.add('active');
+        return;
+      }
+      // Load all data in one server call then show the view
+      document.getElementById('loading-screen').style.display='flex';
+      google.script.run
+        .withSuccessHandler(function(d){
+          allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+          document.getElementById('loading-screen').style.display='none';
+          if(currentUser.role==='admin') showAdmin(); else showAgent();
+        })
+        .withFailureHandler(function(){
+          document.getElementById('loading-screen').style.display='none';
+          if(currentUser.role==='admin') showAdmin(); else showAgent();
+        })
+        .getInitialData(200);
+    })
+    .withFailureHandler(function(e){
+      btn.disabled=false;btn.innerHTML='Sign in';
+      err.textContent='Connection error: '+(e&&e.message?e.message:'Try again.');err.style.display='block';
+    })
+    .login(u,p);
+}
+function doLogout(){
+  // If agent, set End of Shift on server before clearing session
+  if(currentUser && currentUser.role==='agent'){
+    google.script.run
+      .withSuccessHandler(function(){ performLocalLogout(); })
+      .withFailureHandler(function(){ performLocalLogout(); })
+      .agentLogout(currentUser.id);
+  } else {
+    performLocalLogout();
+  }
+}
+function performLocalLogout(){
+  currentUser=null;allAgents=[];allLogs=[];filteredLogs=[];reportLogs=[];auxSummary={};
+  _agentPolling=false; _adminPolling=false;
+  _wasAtTop=false; _alertShowing=false;
+  if(agentTimer) clearTimeout(agentTimer);
+  if(adminTimer) clearTimeout(adminTimer);
+  if(timerTick)  clearInterval(timerTick);
+  if(clockTimer) clearInterval(clockTimer);
+  show('s-login');document.getElementById('inp-pass').value='';
+  toast('Signed out — End of Shift','success');
+}
+
+// ══ AGENT VIEW ══════════════════════════════════════════════════════════════
+function showAgent(){
+  show('s-agent');
+  document.getElementById('ag-avatar').textContent=initials(currentUser.name);
+  document.getElementById('ag-name-label').textContent=currentUser.name;
+  ensureTickRunning();
+  renderAgentView();renderAgentLogs();
+  setRefreshed('agent');
+  _agentPolling=false;
+  scheduleAgentPoll();
+}
+function manualRefreshAgent(){
+  if(agentTimer) clearTimeout(agentTimer);
+  _agentPolling=false;
+  setSyncing('agent');
+  google.script.run
+    .withSuccessHandler(function(d){
+      allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+      renderAgentView();renderAgentLogs();setRefreshed('agent');toast('Refreshed','success');
+      scheduleAgentPoll();
+    })
+    .withFailureHandler(function(){setRefreshError('agent');toast('Refresh failed','error');scheduleAgentPoll();})
+    .getInitialData(50);
+}
+
+function renderAgentView(){
+  var me=allAgents.find(function(a){return String(a.id)===String(currentUser.id);})||{status:currentUser.status||'Available'};
+  currentUser.status=me.status;
+  var q=getQueue(),oc=getOnCall(),off=getOff();
+
+  var badge=document.getElementById('ag-status-badge');
+  badge.textContent=me.status;badge.className='badge '+statusBadgeClass(me.status);
+
+  var sel=document.getElementById('ag-aux-sel');
+  sel.innerHTML=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'].map(function(o){return '<option'+(me.status===o?' selected':'')+'>'+o+'</option>';}).join('');
+  sel.disabled=(me.status==='On Call');
+
+  document.getElementById('ag-next-tag').textContent=q.length?'Next: '+q[0].name:'Queue empty';
+
+  var ql=document.getElementById('ag-queue-list');ql.innerHTML='';
+  q.forEach(function(a,i){
+    var isMe=(String(a.id)===String(currentUser.id));
+    var isTop=(i===0);
+    var startTs=a.queueJoin?new Date(a.queueJoin).getTime():Date.now();
+    var div=document.createElement('div');
+    div.className='q-row'+(isTop?' top-slot':'')+(isMe?' my-slot':'');
+    var actionHtml='';
+    if(isMe && isTop){
+      // Agent is at the top — show the Call received button
+      actionHtml='<button class="btn btn-danger btn-sm" onclick="agentReceiveCall()">📞 Call received</button>';
+    } else if(isMe && !isTop){
+      // Agent is in queue but not at top — show position indicator
+      actionHtml='<span style="font-size:11px;color:#6b7280;background:#f1f5f9;padding:2px 8px;border-radius:99px;white-space:nowrap">⏳ Position #'+(i+1)+'</span>';
+    }
+    div.innerHTML='<span class="q-rank">'+(i+1)+'</span>'
+      +'<span class="q-name">'+a.name+(isMe?'<span class="you-tag">you</span>':'')+'</span>'
+      +'<span class="wait-time" data-start="'+startTs+'">'+fmtSecs((Date.now()-startTs)/1000)+'</span>'
+      +'<span class="badge b-avail">Available</span>'
+      +actionHtml;
+    ql.appendChild(div);
+  });
+
+  var oca=document.getElementById('ag-oncall-area');oca.innerHTML='';
+  oc.forEach(function(a){
+    var isMe=(String(a.id)===String(currentUser.id));
+    var st=a.callStart?new Date(a.callStart).getTime():Date.now();
+    var div=document.createElement('div');div.className='q-row oncall-slot';
+    div.innerHTML='<span class="q-rank">📞</span>'
+      +'<span class="q-name">'+a.name+(isMe?'<span class="you-tag">you</span>':'')+'</span>'
+      +'<span class="call-timer" data-start="'+st+'" data-status="On Call">'+fmtSecs((Date.now()-st)/1000)+'</span>'
+      +'<span class="badge b-oncall">On call</span>'
+      +(isMe?'<button class="btn btn-blue btn-sm" onclick="agentEndCall()">✔ Call ended</button>':'');
+    oca.appendChild(div);
+  });
+
+  var offd=document.getElementById('ag-offqueue');offd.innerHTML='';
+  if(off.length){
+    var lbl=document.createElement('div');lbl.className='sec-label';lbl.textContent='Not in queue';offd.appendChild(lbl);
+    off.forEach(function(a){
+      var auxTs=a.auxStart?new Date(a.auxStart).getTime():Date.now();
+      var div=document.createElement('div');div.className='q-row off-slot';
+      div.innerHTML='<span class="q-rank">—</span>'
+        +'<span class="q-name">'+a.name+'</span>'
+        +'<span class="wait-time" data-start="'+auxTs+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-auxTs)/1000)+'</span>'
+        +'<span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span>';
+      offd.appendChild(div);
+    });
+  }
+  updateCrmLock();
+  checkCallAlert();
+}
+
+function renderAgentLogs(){
+  var ll=document.getElementById('ag-log-list');
+  if(!ll) return; // element removed in split layout — safe exit
+  ll.innerHTML='';
+  if(!allLogs||!allLogs.length){ll.innerHTML='<div class="empty-state">No log entries yet.</div>';return;}
+  allLogs.slice(0,30).forEach(function(l){
+    var isAvoidance=(l.event==='Call Avoidance');
+    var div=document.createElement('div');div.className='log-entry';
+    if(isAvoidance) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    div.innerHTML='<span>'+l.timestamp+'</span><span>'+l.agentName+'</span>'
+      +'<span>'+(l.fromStatus||'—')+'</span><span>'+(l.toStatus||'—')+'</span>'
+      +'<span style="color:'+(l.durationSec?'#059669':'#94a3b8')+'">'+fmtDuration(l.durationSec)+'</span>'
+      +'<span>'+(isAvoidance?'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>':'')+l.event+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
+    ll.appendChild(div);
+  });
+}
+
+function agentChangeAux(val){
+  if(currentUser.status==='On Call')return;
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAgentView();toast('Status → '+val,'success');setRefreshed('agent');})
+    .withFailureHandler(function(){toast('Failed to update status','error');})
+    .setMyStatus(currentUser.id,val,'agent');
+}
+function agentReceiveCall(){
+  // Safety check: only proceed if this agent is #1 in the queue
+  var q=getQueue();
+  if(!q.length || String(q[0].id)!==String(currentUser.id)){
+    toast('You are not at the top of the queue yet.','warning');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAgentView();toast('You are now On Call','success');setRefreshed('agent');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .markCallReceived(currentUser.id,'agent');
+}
+function agentEndCall(){
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAgentView();toast('Call ended — back in queue','success');setRefreshed('agent');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .markCallEnded(currentUser.id,'agent');
+}
+
+// ── Call alert state ────────────────────────────────────────────────────────
+var _wasAtTop      = false;  // was agent #1 on last refresh?
+var _alertShowing  = false;  // is modal currently on screen?
+
+// ── Single chime using Web Audio API (no external file) ─────────────────────
+function playAlertChime() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function tone(freq, startT, dur, vol) {
+      var osc  = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type      = 'sine';
+      osc.frequency.setValueAtTime(freq, startT);
+      gain.gain.setValueAtTime(0, startT);
+      gain.gain.linearRampToValueAtTime(vol, startT + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+      osc.start(startT);
+      osc.stop(startT + dur);
+    }
+
+    var t = ctx.currentTime;
+    // Three-note ascending chime: C5 → E5 → G5
+    tone(523, t,        0.35, 0.4);
+    tone(659, t + 0.18, 0.35, 0.35);
+    tone(784, t + 0.36, 0.55, 0.45);
+  } catch(e) { /* Audio not supported — fail silently */ }
+}
+
+// ── Show / hide modal ────────────────────────────────────────────────────────
+function showCallAlert() {
+  if(_alertShowing) return;
+  _alertShowing = true;
+  // Reset form state
+  document.getElementById('cal-avoidance-form').style.display = 'none';
+  document.getElementById('cal-note').value = '';
+  document.getElementById('cal-note-err').style.display = 'none';
+  document.getElementById('call-alert-modal').classList.add('active');
+  playAlertChime();
+}
+
+function hideCallAlert() {
+  _alertShowing = false;
+  document.getElementById('call-alert-modal').classList.remove('active');
+}
+
+// ── Modal action: agent receives call ────────────────────────────────────────
+function alertReceiveCall() {
+  hideCallAlert();
+  // Reuse existing agentReceiveCall logic
+  google.script.run
+    .withSuccessHandler(function(data){
+      allAgents=data; renderAgentView();
+      toast('You are now On Call','success'); setRefreshed('agent');
+    })
+    .withFailureHandler(function(){ toast('Failed to receive call','error'); })
+    .markCallReceived(currentUser.id,'agent');
+}
+
+// ── Modal action: dismiss clicked — show notes form ──────────────────────────
+function showDismissForm() {
+  document.getElementById('cal-avoidance-form').style.display = 'block';
+  document.getElementById('cal-note').focus();
+}
+
+// ── Modal action: confirm dismiss with note ──────────────────────────────────
+function confirmDismiss() {
+  var note = document.getElementById('cal-note').value.trim();
+  var errEl = document.getElementById('cal-note-err');
+  if(!note) {
+    errEl.style.display = 'block';
+    document.getElementById('cal-note').focus();
+    return;
+  }
+  errEl.style.display = 'none';
+  hideCallAlert();
+  _wasAtTop = false; // reset so if they come back to #1 it fires again
+
+  google.script.run
+    .withSuccessHandler(function(data){
+      allAgents=data; renderAgentView();
+      toast('Dismissed — moved to bottom of queue','warning');
+      setRefreshed('agent');
+    })
+    .withFailureHandler(function(){ toast('Failed to log dismissal','error'); })
+    .logCallAvoidance(currentUser.id, note);
+}
+
+// ── Called from renderAgentView — checks if alert should fire ────────────────
+function checkCallAlert() {
+  if(!currentUser || currentUser.role !== 'agent') return;
+  var q    = getQueue();
+  var isMe = q.length > 0 && String(q[0].id) === String(currentUser.id);
+
+  if(isMe && !_wasAtTop && !_alertShowing) {
+    // Just reached #1 — fire alert
+    _wasAtTop = true;
+    showCallAlert();
+  } else if(!isMe) {
+    // No longer #1 (e.g. admin moved someone else) — reset flag
+    _wasAtTop = false;
+    if(_alertShowing) hideCallAlert();
+  }
+}
+// UNLOCKED when: agent is Available AND #1 in queue, OR any non-Available status
+// LOCKED when:   agent is Available AND position #2 or lower
+function refreshAircall(){
+  var iframe=document.getElementById('ag-crm-iframe');
+  if(iframe){ iframe.src=iframe.src; toast('Aircall refreshed'); }
+}
+
+function updateCrmLock(){
+  var overlay  = document.getElementById('crm-overlay');
+  var pill     = document.getElementById('crm-status-pill');
+  var titleEl  = document.getElementById('crm-overlay-title');
+  var subEl    = document.getElementById('crm-overlay-sub');
+  if(!overlay||!pill) return;
+
+  var status   = currentUser.status || 'Available';
+  var q        = getQueue();
+  var myPos    = q.findIndex(function(a){return String(a.id)===String(currentUser.id);});
+  var isTopOne = (myPos === 0);
+  var isAvailable = (status === 'Available');
+
+  // Unlock condition
+  var unlock = (!isAvailable) || (isAvailable && isTopOne);
+
+  if(unlock){
+    overlay.style.display = 'none';
+    pill.className = 'crm-pill crm-pill-unlocked';
+    if(status === 'On Call'){
+      pill.innerHTML = '<i class="ti ti-phone" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked — On Call';
+    } else if(status === 'Available' && isTopOne){
+      pill.innerHTML = '<i class="ti ti-lock-open" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked — you\'re #1';
+    } else {
+      pill.innerHTML = '<i class="ti ti-lock-open" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked';
+    }
+  } else {
+    overlay.style.display = 'flex';
+    pill.className = 'crm-pill crm-pill-locked';
+    var posLabel = myPos >= 0 ? ' — position #'+(myPos+1) : '';
+    pill.innerHTML = '<i class="ti ti-lock" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Locked'+posLabel;
+    titleEl.textContent = 'Waiting for your turn';
+    subEl.textContent = myPos >= 0
+      ? 'You are #'+(myPos+1)+' in queue. Aircall unlocks when you reach position #1.'
+      : 'Aircall unlocks when you return to the queue and reach position #1.';
+  }
+}
+
+// ══ ADMIN VIEW ══════════════════════════════════════════════════════════════
+function showAdmin(){
+  show('s-admin');
+  document.getElementById('adm-avatar').textContent=initials(currentUser.name);
+  setDefaultDates();
+  ensureTickRunning();
+  renderAdminQueue();renderAdminAux();renderAdminAgentTable();renderAdminLogs(allLogs);updateStats();
+  setRefreshed('admin');checkBreaches();
+  _adminPolling=false;
+  scheduleAdminPoll();
+  setInterval(function(){
+    if(currentUser&&currentUser.role==='admin'){
+      google.script.run
+        .withSuccessHandler(function(logs){allLogs=logs||[];filteredLogs=logs||[];renderAdminLogs(allLogs);})
+        .getLogs(500);
+    }
+  },30000);
+  if('Notification' in window&&Notification.permission==='default') Notification.requestPermission();
+}
+
+function manualRefreshAdmin(){
+  if(adminTimer) clearTimeout(adminTimer);
+  _adminPolling=false;
+  setSyncing('admin');
+  var btn=document.querySelector('[onclick="manualRefreshAdmin()"]');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner" style="border-top-color:#374151"></span>Refreshing…';}
+  google.script.run
+    .withSuccessHandler(function(d){
+      allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+      renderAdminQueue();renderAdminAux();renderAdminAgentTable();renderAdminLogs(allLogs);updateStats();checkBreaches();
+      setRefreshed('admin');
+      if(btn){btn.disabled=false;btn.innerHTML='↻ Refresh all';}
+      toast('All data refreshed','success');
+      scheduleAdminPoll();
+    })
+    .withFailureHandler(function(){
+      if(btn){btn.disabled=false;btn.innerHTML='↻ Refresh all';}
+      setRefreshError('admin');toast('Refresh failed','error');
+      scheduleAdminPoll();
+    })
+    .getInitialData(500);
+}
+
+function setDefaultDates(){
+  var today=new Date(),ts=today.toISOString().slice(0,10);
+  var wa=new Date(today-7*86400000).toISOString().slice(0,10);
+  document.getElementById('exp-from').value=wa;document.getElementById('exp-to').value=ts;
+  document.getElementById('rpt-from').value=wa;document.getElementById('rpt-to').value=ts;
+}
+
+function updateStats(){
+  var ag=allAgents.filter(function(a){return a.role==='agent';});
+  function cnt(s){return ag.filter(function(a){return a.status===s;}).length;}
+  document.getElementById('s-avail').textContent   =cnt('Available');
+  document.getElementById('s-oncall').textContent   =cnt('On Call');
+  document.getElementById('s-break').textContent    =cnt('Break');
+  document.getElementById('s-lunch').textContent    =cnt('Lunch');
+  document.getElementById('s-coaching').textContent =cnt('Coaching');
+  document.getElementById('s-meeting').textContent  =cnt('Meeting');
+  document.getElementById('s-outbound').textContent =cnt('Outbound Call');
+  document.getElementById('s-notavail').textContent =cnt('Not Available');
+  document.getElementById('s-eos').textContent      =cnt('End of Shift');
+}
+
+function renderAdminQueue(){
+  var q=getQueue(),oc=getOnCall();
+  var ql=document.getElementById('adm-queue-list');ql.innerHTML='';
+  if(!q.length&&!oc.length) ql.innerHTML='<div class="empty-state">No agents in queue.</div>';
+  q.forEach(function(a,i){
+    var startTs=a.queueJoin?new Date(a.queueJoin).getTime():Date.now();
+    var ws=Math.floor((Date.now()-startTs)/1000);
+    var pct=Math.min((ws/(thresholds.maxWaitMin*60))*100,100);
+    var fc=pct>=80?' crit':pct>=50?' warn':'';
+    var div=document.createElement('div');div.className='q-row'+(i===0?' top-slot':'');
+    div.innerHTML='<span class="q-rank">'+(i+1)+'</span>'
+      +'<span class="q-name">'+a.name+'</span>'
+      +'<span class="wait-time" data-start="'+startTs+'">'+fmtSecs(ws)+'</span>'
+      +'<span class="badge b-avail">Available</span>'
+      +'<button class="btn btn-danger btn-sm" onclick="adminReceiveCall('+a.id+')">📞 Call received</button>'
+      +'<div class="queue-time-bar" style="flex-basis:100%"><div class="queue-time-fill'+fc+'" style="width:'+Math.round(pct)+'%"></div></div>';
+    ql.appendChild(div);
+  });
+  var oca=document.getElementById('adm-oncall-area');oca.innerHTML='';
+  oc.forEach(function(a){
+    var st=a.callStart?new Date(a.callStart).getTime():Date.now();
+    var div=document.createElement('div');div.className='q-row oncall-slot';
+    div.innerHTML='<span class="q-rank">📞</span><span class="q-name">'+a.name+'</span>'
+      +'<span class="call-timer" data-start="'+st+'" data-status="On Call">'+fmtSecs((Date.now()-st)/1000)+'</span>'
+      +'<span class="badge b-oncall">On call</span>'
+      +'<button class="btn btn-blue btn-sm" onclick="adminEndCall('+a.id+')">✔ Call ended</button>';
+    oca.appendChild(div);
+  });
+  renderAdminOffQueue();
+}
+
+function renderAdminOffQueue(){
+  // Get selected filter statuses from checkboxes
+  var selectedStatuses={};
+  document.querySelectorAll('.offq-filter-cb').forEach(function(cb){
+    if(cb.checked) selectedStatuses[cb.value]=true;
+  });
+
+  // Get all non-Available agents and filter by selected statuses
+  var allOff=allAgents.filter(function(a){
+    return a.role==='agent' && a.status!=='Available';
+  });
+  var filtered=allOff.filter(function(a){
+    return selectedStatuses[a.status];
+  });
+
+  var offd=document.getElementById('adm-offqueue');offd.innerHTML='';
+  if(!filtered.length){
+    offd.innerHTML='<div class="empty-state">No agents match the selected filters.</div>';
+  } else {
+    var frag=document.createDocumentFragment();
+    filtered.forEach(function(a){
+      var auxTs=a.auxStart?new Date(a.auxStart).getTime():(a.callStart?new Date(a.callStart).getTime():Date.now());
+      var div=document.createElement('div');div.className='q-row off-slot';
+      div.innerHTML='<span class="q-rank">—</span>'
+        +'<span class="q-name">'+a.name+'</span>'
+        +'<span class="wait-time" data-start="'+auxTs+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-auxTs)/1000)+'</span>'
+        +'<span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span>';
+      frag.appendChild(div);
+    });
+    offd.appendChild(frag);
+  }
+
+  var countEl=document.getElementById('adm-offqueue-count');
+  if(countEl) countEl.textContent='Showing '+filtered.length+' of '+allOff.length+' agents';
+}
+
+function renderAdminAux(){
+  var c=document.getElementById('adm-aux-list');c.innerHTML='';
+  allAgents.filter(function(a){return a.role==='agent';}).forEach(function(a){
+    var div=document.createElement('div');div.className='aux-row-item';
+    var allOpts=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
+    var cv=allOpts.indexOf(a.status)!==-1?a.status:'Available';
+    var optHtml=allOpts.map(function(o){return '<option value="'+o+'"'+(cv===o?' selected':'')+'>'+o+'</option>';}).join('');
+    div.innerHTML='<input type="checkbox" class="aux-cb" data-agent-id="'+a.id+'" onchange="updateBulkAuxBar()" style="width:16px;height:16px;cursor:pointer;flex-shrink:0"/>'
+      +'<div class="avatar" style="width:30px;height:30px;font-size:11px;flex-shrink:0">'+initials(a.name)+'</div>'
+      +'<span style="flex:1;font-size:13px;font-weight:600">'+a.name+'</span>'
+      +'<span class="badge '+statusBadgeClass(a.status)+'" style="min-width:95px;text-align:center">'+a.status+'</span>'
+      +'<select onchange="adminChangeAux('+a.id+',this.value)" style="width:auto;min-width:155px">'
+      +optHtml+'</select>';
+    c.appendChild(div);
+  });
+  // Reset select-all checkbox
+  var sa=document.getElementById('aux-select-all');
+  if(sa) sa.checked=false;
+  updateBulkAuxBar();
+}
+
+function updateBulkAuxBar(){
+  var checked=document.querySelectorAll('.aux-cb:checked');
+  var bar=document.getElementById('bulk-aux-bar');
+  var countEl=document.getElementById('bulk-aux-count');
+  if(checked.length>0){
+    bar.style.display='flex';
+    countEl.textContent=checked.length+' agent'+(checked.length>1?'s':'')+' selected';
+  } else {
+    bar.style.display='none';
+  }
+}
+
+function toggleAllAuxCheckboxes(checked){
+  document.querySelectorAll('.aux-cb').forEach(function(cb){cb.checked=checked;});
+  updateBulkAuxBar();
+}
+
+function clearBulkAuxSelection(){
+  document.querySelectorAll('.aux-cb').forEach(function(cb){cb.checked=false;});
+  var sa=document.getElementById('aux-select-all');
+  if(sa) sa.checked=false;
+  updateBulkAuxBar();
+}
+
+function applyBulkAux(){
+  var status=document.getElementById('bulk-aux-status').value;
+  if(!status){toast('Select a status first','warning');return;}
+  var ids=[];
+  document.querySelectorAll('.aux-cb:checked').forEach(function(cb){
+    ids.push(cb.getAttribute('data-agent-id'));
+  });
+  if(!ids.length){toast('No agents selected','warning');return;}
+
+  toast('Applying '+status+' to '+ids.length+' agents…');
+
+  google.script.run
+    .withSuccessHandler(function(data){
+      allAgents=data;
+      renderAdminQueue();renderAdminAux();updateStats();checkBreaches();setRefreshed('admin');
+      toast('Done — '+ids.length+' agents updated to '+status,'success');
+      document.getElementById('bulk-aux-status').value='';
+    })
+    .withFailureHandler(function(e){
+      toast('Bulk update failed: '+(e&&e.message?e.message:'error'),'error');
+    })
+    .bulkSetStatus(ids, status);
+}
+
+// ── Logs ────────────────────────────────────────────────────────────────────
+function refreshLogs(){
+  google.script.run
+    .withSuccessHandler(function(data){allLogs=data;filteredLogs=data;renderAdminLogs(data);toast('Logs refreshed');setRefreshed('admin');})
+    .withFailureHandler(function(){toast('Failed to refresh logs','error');})
+    .getLogs(500);
+}
+function filterLogs(){
+  var from=document.getElementById('exp-from').value;
+  var to=document.getElementById('exp-to').value;
+  if(!from||!to){filteredLogs=allLogs;renderAdminLogs(allLogs);return;}
+  var fd=new Date(from+'T00:00:00'),td=new Date(to+'T23:59:59');
+  filteredLogs=(allLogs||[]).filter(function(l){
+    if(!l||!l.timestamp)return false;
+    var d=new Date(l.timestamp);return d>=fd&&d<=td;
+  });
+  renderAdminLogs(filteredLogs);
+  toast('Showing '+filteredLogs.length+' entries','success');
+}
+function renderAdminLogs(logs){
+  var ll=document.getElementById('adm-log-list');if(!ll)return;ll.innerHTML='';
+  var data=logs||[];
+  if(!data.length){
+    ll.innerHTML='<div class="empty-state">No log entries found.<br><small style="color:#94a3b8">If this is a fresh install, run <b>migrateLogsSheet()</b> in Apps Script, then refresh.</small></div>';
+    document.getElementById('log-count').textContent='0 entries';return;
+  }
+  var frag=document.createDocumentFragment();
+  data.forEach(function(l){
+    if(!l)return;
+    var isAvoidance=(l.event==='Call Avoidance');
+    var div=document.createElement('div');div.className='log-entry';
+    if(isAvoidance) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    div.innerHTML='<span>'+l.timestamp+'</span><span>'+(l.agentName||'')+'</span>'
+      +'<span>'+(l.fromStatus||'—')+'</span><span>'+(l.toStatus||'—')+'</span>'
+      +'<span style="color:'+(l.durationSec?'#059669':'#94a3b8')+'">'+fmtDuration(l.durationSec)+'</span>'
+      +'<span>'+(isAvoidance?'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>':'')+( l.event||'')+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
+    frag.appendChild(div);
+  });
+  ll.appendChild(frag);
+  document.getElementById('log-count').textContent=data.length+' entries shown';
+}
+function exportLogsCSV(){
+  var data=(filteredLogs&&filteredLogs.length)?filteredLogs:allLogs;
+  if(!data||!data.length){toast('No data to export','warning');return;}
+  var rows=[['Date & Time','Agent Name','From Status','To Status','Duration (sec)','Event','Note']];
+  data.forEach(function(l){if(l)rows.push([l.timestamp,l.agentName,l.fromStatus||'',l.toStatus||'',l.durationSec||0,l.event,l.note||'']);});
+  downloadCSV(rows,'ECE_Queue_Logs_'+(document.getElementById('exp-from').value||'all')+'_to_'+(document.getElementById('exp-to').value||'all'));
+  toast('Exported '+data.length+' rows','success');
+}
+
+// ── Reports ─────────────────────────────────────────────────────────────────
+function generateReports(){
+  var from=document.getElementById('rpt-from').value,to=document.getElementById('rpt-to').value;
+  if(!from||!to){toast('Select a date range','warning');return;}
+  var btn=document.getElementById('btn-gen-report');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Fetching…';
+  document.getElementById('rpt-status').textContent='Fetching log data from server…';
+  document.getElementById('rpt-content').style.display='none';
+  google.script.run
+    .withSuccessHandler(function(logs){
+      reportLogs=logs||[];
+      document.getElementById('rpt-status').textContent='Calculating AUX breakdown…';
+      google.script.run
+        .withSuccessHandler(function(summary){
+          auxSummary=summary||{};
+          btn.disabled=false;btn.innerHTML='📊 Generate report';
+          renderReports(from,to);
+        })
+        .withFailureHandler(function(e){
+          btn.disabled=false;btn.innerHTML='📊 Generate report';
+          toast('AUX summary failed: '+(e&&e.message?e.message:'error'),'error');
+          document.getElementById('rpt-status').textContent='Error — try again.';
+        })
+        .getAgentAuxSummary(from,to);
+    })
+    .withFailureHandler(function(e){
+      btn.disabled=false;btn.innerHTML='📊 Generate report';
+      toast('Log fetch failed: '+(e&&e.message?e.message:'error'),'error');
+      document.getElementById('rpt-status').textContent='Error — try again.';
+    })
+    .getLogsByDateRange(from,to);
+}
+function renderReports(from,to){
+  var logs=reportLogs;
+  var agents=allAgents.filter(function(a){return a.role==='agent';});
+  var tc=logs.filter(function(l){return l.event==='Call Received';}).length;
+  var te=logs.filter(function(l){return l.event==='Call Ended';}).length;
+  var td=logs.reduce(function(s,l){return s+(l.durationSec||0);},0);
+  var avg=te>0?Math.round(td/te):0;
+  document.getElementById('rpt-summary').innerHTML=[
+    {n:tc,l:'Calls received'},{n:te,l:'Calls completed'},
+    {n:fmtDuration(avg),l:'Avg call duration'},{n:agents.length,l:'Agents in period'}
+  ].map(function(s){return '<div class="stat-box"><div class="stat-n" style="font-size:'+(String(s.n).length>5?'16px':'24px')+'">'+s.n+'</div><div class="stat-l">'+s.l+'</div></div>';}).join('');
+
+  var tbl=document.getElementById('rpt-agent-table');tbl.innerHTML='';
+  if(!agents.length){tbl.innerHTML='<div class="empty-state">No agent data.</div>';return;}
+  var frag=document.createDocumentFragment();
+  agents.forEach(function(a){
+    var s=auxSummary[a.name]||{availSec:0,breakSec:0,awaySec:0};
+    var cl=logs.filter(function(l){return l.agentName===a.name&&l.event==='Call Received';}).length;
+    var dl=logs.filter(function(l){return l.agentName===a.name&&l.event==='Call Ended';}).reduce(function(x,l){return x+(l.durationSec||0);},0);
+    var ag=cl>0?Math.round(dl/cl):0;
+    var div=document.createElement('div');div.className='report-agent-row';
+    div.innerHTML='<span style="display:flex;align-items:center;gap:6px">'
+      +'<div class="avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
+      +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
+      +'<span style="font-weight:700;font-size:15px;color:#059669">'+cl+'</span>'
+      +'<span>'+fmtDuration(ag)+'</span>'
+      +'<span class="badge b-avail">'+fmtHours(s.availSec)+'</span>'
+      +'<span class="badge b-break">'+fmtHours(s.breakSec)+'</span>'
+      +'<span class="badge b-away">'+fmtHours(s.awaySec)+'</span>';
+    frag.appendChild(div);
+  });
+  tbl.appendChild(frag);
+  buildHeatmap(logs,from,to);
+  document.getElementById('rpt-status').textContent='Report: '+from+' to '+to+' — '+logs.length+' events.';
+  document.getElementById('rpt-content').style.display='block';
+  toast('Report ready','success');
+}
+function buildHeatmap(logs,fromStr,toStr){
+  var fd=new Date(fromStr+'T00:00:00'),td=new Date(toStr+'T23:59:59');
+  var days=[],cur=new Date(fd);
+  while(cur<=td&&days.length<14){days.push(cur.toISOString().slice(0,10));cur=new Date(cur.getTime()+86400000);}
+  var mx={};
+  days.forEach(function(d){mx[d]={};for(var h=0;h<24;h++)mx[d][h]=0;});
+  logs.filter(function(l){return l.event==='Call Received';}).forEach(function(l){
+    if(!l.timestamp)return;
+    var dt=new Date(l.timestamp),day=dt.toISOString().slice(0,10),hr=dt.getHours();
+    if(mx[day])mx[day][hr]=(mx[day][hr]||0)+1;
+  });
+  var wrap=document.getElementById('rpt-heatmap');
+  var tbl=document.createElement('table');tbl.className='heatmap-table';
+  var thead=document.createElement('thead'),hr2=document.createElement('tr');
+  hr2.innerHTML='<th style="text-align:left;min-width:74px">Date</th>';
+  for(var h=0;h<24;h++){var th=document.createElement('th');th.textContent=String(h).padStart(2,'0');hr2.appendChild(th);}
+  thead.appendChild(hr2);tbl.appendChild(thead);
+  var tbody=document.createElement('tbody');
+  days.forEach(function(d){
+    var tr=document.createElement('tr');
+    var th=document.createElement('th');th.style.cssText='text-align:left;white-space:nowrap;font-size:10px;color:#374151;padding-right:5px;font-weight:600';th.textContent=d;tr.appendChild(th);
+    for(var h=0;h<24;h++){
+      var v=mx[d]?mx[d][h]||0:0,td2=document.createElement('td');
+      td2.textContent=v||'';td2.className=v===0?'hm-0':v<=2?'hm-1':v<=5?'hm-2':v<=9?'hm-3':'hm-4';
+      td2.title=d+' '+String(h).padStart(2,'0')+':00 — '+v+' call'+(v!==1?'s':'');tr.appendChild(td2);
+    }
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);wrap.innerHTML='';wrap.appendChild(tbl);
+}
+function exportReportCSV(){
+  if(!reportLogs.length){toast('Generate a report first','warning');return;}
+  var rows=[['Date & Time','Agent','From Status','To Status','Duration (sec)','Event','Note']];
+  reportLogs.forEach(function(l){rows.push([l.timestamp,l.agentName,l.fromStatus||'',l.toStatus||'',l.durationSec||0,l.event,l.note||'']);});
+  downloadCSV(rows,'ECE_Report_'+document.getElementById('rpt-from').value+'_to_'+document.getElementById('rpt-to').value);
+  toast('Report exported','success');
+}
+function downloadCSV(rows,fn){
+  var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c||'').replace(/"/g,'""')+'"';}).join(',');}).join('\n');
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=fn+'.csv';a.click();
+}
+
+// ── Admin actions ────────────────────────────────────────────────────────────
+function adminChangeAux(id,val){
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAdminQueue();renderAdminAux();updateStats();checkBreaches();toast('Status updated','success');setRefreshed('admin');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .setMyStatus(id,val,'admin');
+}
+function adminReceiveCall(id){
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAdminQueue();updateStats();checkBreaches();toast('Call received','success');setRefreshed('admin');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .markCallReceived(id,'admin');
+}
+function adminEndCall(id){
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAdminQueue();updateStats();checkBreaches();toast('Call ended — agent back in queue','success');setRefreshed('admin');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .markCallEnded(id,'admin');
+}
+
+// ── Agent accounts ───────────────────────────────────────────────────────────
+function renderAdminAgentTable(){
+  var c=document.getElementById('adm-agent-table');c.innerHTML='';
+  var ag=allAgents.filter(function(a){return a.role==='agent';});
+  if(!ag.length){c.innerHTML='<div class="empty-state">No agents yet.</div>';return;}
+  var frag=document.createDocumentFragment();
+  ag.forEach(function(a){
+    var div=document.createElement('div');div.className='agent-tbl-row';
+    div.innerHTML='<span style="display:flex;align-items:center;gap:8px">'
+      +'<div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
+      +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
+      +'<span style="font-size:12px;color:#6b7280">'+a.username+'</span>'
+      +'<span><span class="badge b-agent">Agent</span></span>'
+      +'<span><span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span></span>'
+      +'<span style="display:flex;gap:5px">'
+      +'<button class="btn btn-ghost btn-sm" onclick="openEditAgent(\''+a.id+'\')">✏ Edit</button>'
+      +'<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5" onclick="confirmDelete(\''+a.id+'\',\''+a.name.replace(/'/g,"\\'")+'\')" >🗑</button>'
+      +'</span>';
+    frag.appendChild(div);
+  });
+  c.appendChild(frag);
+}
+function openAddAgent(){
+  editingId=null;
+  document.getElementById('agent-form-title').textContent='Add agent';
+  ['af-name','af-user','af-pass'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('af-role').value='agent';
+  document.getElementById('af-pass-hint').style.display='none';
+  document.getElementById('af-err').style.display='none';
+  document.getElementById('agent-form-card').style.display='block';
+  document.getElementById('agent-form-card').scrollIntoView({behavior:'smooth'});
+}
+function openEditAgent(id){
+  var a=allAgents.find(function(x){return String(x.id)===String(id);});if(!a)return;
+  editingId=id;
+  document.getElementById('agent-form-title').textContent='Edit — '+a.name;
+  document.getElementById('af-name').value=a.name;
+  document.getElementById('af-user').value=a.username;
+  document.getElementById('af-pass').value='';
+  document.getElementById('af-role').value=a.role;
+  document.getElementById('af-pass-hint').style.display='inline';
+  document.getElementById('af-err').style.display='none';
+  document.getElementById('agent-form-card').style.display='block';
+  document.getElementById('agent-form-card').scrollIntoView({behavior:'smooth'});
+}
+function closeAgentForm(){document.getElementById('agent-form-card').style.display='none';editingId=null;}
+function saveAgent(){
+  var name=document.getElementById('af-name').value.trim();
+  var uname=document.getElementById('af-user').value.trim();
+  var pass=document.getElementById('af-pass').value;
+  var role=document.getElementById('af-role').value;
+  var errEl=document.getElementById('af-err');errEl.style.display='none';
+  if(!name||!uname){errEl.textContent='Name and username are required.';errEl.style.display='block';return;}
+  if(!editingId&&!pass){errEl.textContent='Password is required for new agents.';errEl.style.display='block';return;}
+  if(editingId){
+    google.script.run
+      .withSuccessHandler(function(data){allAgents=data;renderAdminAgentTable();closeAgentForm();toast('Agent updated','success');})
+      .withFailureHandler(function(){toast('Failed','error');})
+      .updateAgent(editingId,name,uname,pass,role);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(data){allAgents=data;renderAdminAgentTable();closeAgentForm();toast('Agent added','success');})
+      .withFailureHandler(function(){toast('Failed','error');})
+      .createAgent(name,uname,pass,role);
+  }
+}
+function confirmDelete(id,name){
+  if(!confirm('Remove "'+name+'"? Cannot be undone.'))return;
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;renderAdminAgentTable();toast('Agent removed','success');})
+    .withFailureHandler(function(){toast('Failed','error');})
+    .deleteAgent(id);
+}
+function adminTab(btn,tabId){
+  document.querySelectorAll('.nav-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  document.querySelectorAll('.adm-tab').forEach(function(t){t.style.display='none';});
+  document.getElementById(tabId).style.display='block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIRST-TIME PASSWORD SETUP
+// ══════════════════════════════════════════════════════════════════════════════
+
+function submitFirstTimeSetup(){
+  var pass  = document.getElementById('ft-pass').value;
+  var pass2 = document.getElementById('ft-pass2').value;
+  var sq    = document.getElementById('ft-sq').value;
+  var sa    = document.getElementById('ft-sa').value.trim();
+  var errEl = document.getElementById('ft-err');
+  errEl.style.display='none';
+
+  if(!pass || pass.length<6){errEl.textContent='Password must be at least 6 characters.';errEl.style.display='block';return;}
+  if(pass!==pass2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
+  if(pass==='admin123'){errEl.textContent='You cannot keep the default password.';errEl.style.display='block';return;}
+  if(!sq){errEl.textContent='Please select a security question.';errEl.style.display='block';return;}
+  if(!sa){errEl.textContent='Please enter a security answer.';errEl.style.display='block';return;}
+
+  var btn=document.getElementById('ft-btn');
+  btn.disabled=true;btn.textContent='Setting up…';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false;btn.textContent='✔ Complete setup';
+      if(!res.success){errEl.textContent=res.error||'Failed.';errEl.style.display='block';return;}
+      currentUser.passwordChanged=true;
+      document.getElementById('first-time-modal').classList.remove('active');
+      toast('Account setup complete!','success');
+      // Continue with normal login flow
+      document.getElementById('loading-screen').style.display='flex';
+      google.script.run
+        .withSuccessHandler(function(d){
+          allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+          document.getElementById('loading-screen').style.display='none';
+          if(currentUser.role==='admin') showAdmin(); else showAgent();
+        })
+        .withFailureHandler(function(){
+          document.getElementById('loading-screen').style.display='none';
+          if(currentUser.role==='admin') showAdmin(); else showAgent();
+        })
+        .getInitialData(200);
+    })
+    .withFailureHandler(function(e){
+      btn.disabled=false;btn.textContent='✔ Complete setup';
+      errEl.textContent='Server error: '+(e&&e.message?e.message:'Try again.');errEl.style.display='block';
+    })
+    .forceChangePassword(currentUser.id, pass, sq, sa);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FORGOT PASSWORD
+// ══════════════════════════════════════════════════════════════════════════════
+
+var _fpUsername = '';
+
+function openForgot(){
+  _fpUsername='';
+  document.getElementById('fp-step1').style.display='block';
+  document.getElementById('fp-step2').style.display='none';
+  document.getElementById('fp-step3').style.display='none';
+  document.getElementById('fp-user').value='';
+  document.getElementById('fp-err1').style.display='none';
+  document.getElementById('forgot-modal').classList.add('active');
+}
+function closeForgot(){
+  document.getElementById('forgot-modal').classList.remove('active');
+}
+
+function fpGetQuestion(){
+  var user=document.getElementById('fp-user').value.trim();
+  var errEl=document.getElementById('fp-err1');
+  errEl.style.display='none';
+  if(!user){errEl.textContent='Enter your username.';errEl.style.display='block';return;}
+  _fpUsername=user;
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res.success){errEl.textContent=res.error;errEl.style.display='block';return;}
+      document.getElementById('fp-question').textContent=res.question;
+      document.getElementById('fp-step1').style.display='none';
+      document.getElementById('fp-step2').style.display='block';
+      document.getElementById('fp-answer').value='';
+      document.getElementById('fp-newpass').value='';
+      document.getElementById('fp-newpass2').value='';
+      document.getElementById('fp-err2').style.display='none';
+    })
+    .withFailureHandler(function(e){
+      errEl.textContent='Error: '+(e&&e.message?e.message:'Try again.');errEl.style.display='block';
+    })
+    .getSecurityQuestion(user);
+}
+
+function fpResetPassword(){
+  var answer  =document.getElementById('fp-answer').value.trim();
+  var newpass =document.getElementById('fp-newpass').value;
+  var newpass2=document.getElementById('fp-newpass2').value;
+  var errEl   =document.getElementById('fp-err2');
+  errEl.style.display='none';
+
+  if(!answer){errEl.textContent='Enter your security answer.';errEl.style.display='block';return;}
+  if(!newpass||newpass.length<6){errEl.textContent='New password must be at least 6 characters.';errEl.style.display='block';return;}
+  if(newpass!==newpass2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
+  if(newpass==='admin123'){errEl.textContent='Cannot use the default password.';errEl.style.display='block';return;}
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res.success){errEl.textContent=res.error;errEl.style.display='block';return;}
+      document.getElementById('fp-step2').style.display='none';
+      document.getElementById('fp-step3').style.display='block';
+    })
+    .withFailureHandler(function(e){
+      errEl.textContent='Error: '+(e&&e.message?e.message:'Try again.');errEl.style.display='block';
+    })
+    .resetPasswordWithSecurity(_fpUsername, answer, newpass);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROFILE SETTINGS
+// ══════════════════════════════════════════════════════════════════════════════
+
+function openProfile(){
+  ['prof-curpass','prof-newpass','prof-newpass2','prof-sqpass','prof-sa'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('prof-sq').value='';
+  ['prof-pass-err','prof-pass-ok','prof-sq-err','prof-sq-ok'].forEach(function(id){document.getElementById(id).style.display='none';});
+  document.getElementById('profile-modal').classList.add('active');
+}
+function closeProfile(){
+  document.getElementById('profile-modal').classList.remove('active');
+}
+
+function profChangePass(){
+  var cur  =document.getElementById('prof-curpass').value;
+  var np   =document.getElementById('prof-newpass').value;
+  var np2  =document.getElementById('prof-newpass2').value;
+  var errEl=document.getElementById('prof-pass-err');
+  var okEl =document.getElementById('prof-pass-ok');
+  errEl.style.display='none';okEl.style.display='none';
+
+  if(!cur){errEl.textContent='Enter current password.';errEl.style.display='block';return;}
+  if(!np||np.length<6){errEl.textContent='New password must be at least 6 characters.';errEl.style.display='block';return;}
+  if(np!==np2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res.success){errEl.textContent=res.error;errEl.style.display='block';return;}
+      okEl.textContent='Password changed successfully!';okEl.style.display='block';
+      document.getElementById('prof-curpass').value='';
+      document.getElementById('prof-newpass').value='';
+      document.getElementById('prof-newpass2').value='';
+      toast('Password updated','success');
+    })
+    .withFailureHandler(function(e){
+      errEl.textContent='Error: '+(e&&e.message?e.message:'');errEl.style.display='block';
+    })
+    .changePassword(currentUser.id, cur, np);
+}
+
+function profChangeSQ(){
+  var pass =document.getElementById('prof-sqpass').value;
+  var sq   =document.getElementById('prof-sq').value;
+  var sa   =document.getElementById('prof-sa').value.trim();
+  var errEl=document.getElementById('prof-sq-err');
+  var okEl =document.getElementById('prof-sq-ok');
+  errEl.style.display='none';okEl.style.display='none';
+
+  if(!pass){errEl.textContent='Enter current password to confirm.';errEl.style.display='block';return;}
+  if(!sq){errEl.textContent='Select a security question.';errEl.style.display='block';return;}
+  if(!sa){errEl.textContent='Enter your answer.';errEl.style.display='block';return;}
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res.success){errEl.textContent=res.error;errEl.style.display='block';return;}
+      okEl.textContent='Security question updated!';okEl.style.display='block';
+      document.getElementById('prof-sqpass').value='';
+      document.getElementById('prof-sa').value='';
+      toast('Security Q&A updated','success');
+    })
+    .withFailureHandler(function(e){
+      errEl.textContent='Error: '+(e&&e.message?e.message:'');errEl.style.display='block';
+    })
+    .changeSecurityQA(currentUser.id, pass, sq, sa);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BULK UPLOAD
+// ══════════════════════════════════════════════════════════════════════════════
+
+var _bulkRows = [];
+
+function openBulk(){
+  document.getElementById('bulk-file').value='';
+  document.getElementById('bulk-preview-area').style.display='none';
+  document.getElementById('bulk-err').style.display='none';
+  _bulkRows=[];
+  document.getElementById('bulk-modal').classList.add('active');
+}
+function closeBulk(){
+  document.getElementById('bulk-modal').classList.remove('active');
+}
+
+function parseBulkFile(){
+  var fileInput=document.getElementById('bulk-file');
+  var errEl=document.getElementById('bulk-err');
+  errEl.style.display='none';
+  if(!fileInput.files||!fileInput.files.length){errEl.textContent='No file selected.';errEl.style.display='block';return;}
+
+  var file=fileInput.files[0];
+  if(!file.name.toLowerCase().endsWith('.csv')){errEl.textContent='Please select a .csv file.';errEl.style.display='block';return;}
+
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var raw=e.target.result.trim();
+    if(!raw){errEl.textContent='File is empty.';errEl.style.display='block';return;}
+
+    var lines=raw.split('\n');
+    _bulkRows=[];
+    var previewHTML='';
+    var skippedHeader=false;
+
+    lines.forEach(function(line,i){
+      line=line.replace(/\r/g,'').trim();
+      if(!line) return;
+      var parts=line.split(',').map(function(s){return s.trim().replace(/^["']|["']$/g,'');});
+      if(parts.length<2) return;
+
+      // Auto-skip header row if first column looks like a header
+      if(i===0 && !skippedHeader){
+        var firstCol=parts[0].toLowerCase();
+        if(firstCol==='name'||firstCol==='full name'||firstCol==='agent name'||firstCol==='agent'){
+          skippedHeader=true;
+          return;
+        }
+      }
+
+      var name=parts[0], username=parts[1], role=(parts[2]||'agent').toLowerCase();
+      if(role!=='admin') role='agent';
+      if(!name||!username) return;
+      _bulkRows.push({name:name,username:username,role:role});
+      previewHTML+='<div class="bulk-row"><span>'+name+'</span><span>'+username+'</span><span class="badge '+(role==='admin'?'b-admin':'b-agent')+'">'+role+'</span></div>';
+    });
+
+    if(!_bulkRows.length){errEl.textContent='No valid rows found. Format: Name, Username, Role';errEl.style.display='block';return;}
+
+    document.getElementById('bulk-preview-rows').innerHTML=previewHTML;
+    document.getElementById('bulk-count').textContent=_bulkRows.length+' agent(s) ready to create — all with default password admin123';
+    document.getElementById('bulk-preview-area').style.display='block';
+  };
+
+  reader.onerror=function(){
+    errEl.textContent='Failed to read file. Try again.';errEl.style.display='block';
+  };
+
+  reader.readAsText(file);
+}
+
+function submitBulkUpload(){
+  if(!_bulkRows.length) return;
+  var btn=document.getElementById('bulk-submit-btn');
+  btn.disabled=true;btn.textContent='Creating…';
+  var errEl=document.getElementById('bulk-err');
+  errEl.style.display='none';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false;btn.textContent='✔ Create all agents';
+      if(res.errors&&res.errors.length){
+        errEl.textContent='Created '+res.created+', errors: '+res.errors.join('; ');
+        errEl.style.display='block';
+      } else {
+        toast(res.created+' agents created successfully!','success');
+        closeBulk();
+      }
+      allAgents=res.agents||allAgents;
+      renderAdminAgentTable();
+    })
+    .withFailureHandler(function(e){
+      btn.disabled=false;btn.textContent='✔ Create all agents';
+      errEl.textContent='Server error: '+(e&&e.message?e.message:'');errEl.style.display='block';
+    })
+    .bulkCreateAgents(_bulkRows);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+// ── Boot — show login immediately, don't wait for iframes to load ────────────
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+  bootApp(); // DOM already ready
+}
+function bootApp(){
+  ensureTickRunning();
+  document.getElementById('loading-screen').style.display='none';
+  document.getElementById('s-login').classList.add('active');
+}
+</script>
+</body>
+</html>
