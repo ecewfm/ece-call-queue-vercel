@@ -192,6 +192,13 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 .agent-body.no-aircall{grid-template-columns:1fr}
 .agent-body.no-aircall .agent-left{border-right:none;padding:1rem}
 .agent-body.no-aircall .alp-scroll{max-width:1000px;margin:0 auto}
+/* Agent tabs */
+.ag-tab-nav{display:flex;gap:0;background:#fff;border-bottom:1px solid #e2e6ea;padding:0 12px;flex-shrink:0}
+.ag-tab-btn{padding:10px 18px;background:transparent;border:none;border-bottom:3px solid transparent;font-size:13px;font-weight:600;color:#6b7280;cursor:pointer;transition:all .15s}
+.ag-tab-btn:hover{color:#1a1a1a;background:#f8fafc}
+.ag-tab-btn.active{color:#059669;border-bottom-color:#059669;background:#f0fdf4}
+.ag-tab-content{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.ag-tab-content[style*="display:none"]{display:none !important}
 /* Left panel */
 .agent-left{display:flex;flex-direction:column;background:#fff;border-right:1px solid #e2e6ea;overflow:hidden}
 .alp-section{padding:10px 12px;border-bottom:1px solid #e2e6ea;flex-shrink:0}
@@ -512,6 +519,15 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sign out</button>
     </div>
 
+    <!-- ── Agent tab navigation ── -->
+    <div class="ag-tab-nav">
+      <button class="ag-tab-btn active" id="ag-tab-btn-dashboard" onclick="agentTab('dashboard')">📞 Dashboard</button>
+      <button class="ag-tab-btn" id="ag-tab-btn-livequeue" onclick="agentTab('livequeue')">🔢 Live queue</button>
+    </div>
+
+    <!-- ── TAB: Dashboard (default) ── -->
+    <div class="ag-tab-content" id="ag-tab-dashboard">
+
     <!-- ── Body: left panel + right CRM ── -->
     <div class="agent-body" id="ag-body">
 
@@ -526,12 +542,11 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 
         <div class="alp-scroll">
           <div class="alp-sec-label">
-            🔢 Queue
+            🔢 Available queue
             <span id="ag-next-tag" style="font-size:10px;font-weight:600;background:#dbeafe;color:#1e40af;padding:1px 7px;border-radius:99px;margin-left:4px"></span>
           </div>
           <div id="ag-queue-list"></div>
           <div id="ag-oncall-area"></div>
-          <div id="ag-offqueue"></div>
         </div>
 
       </div>
@@ -571,6 +586,18 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
           </div>
         </div>
 
+      </div>
+    </div>
+    </div><!-- end ag-tab-dashboard -->
+
+    <!-- ── TAB: Live queue (read-only view of admin's grid) ── -->
+    <div class="ag-tab-content" id="ag-tab-livequeue" style="display:none">
+      <div style="padding:12px 16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:12px;color:#6b7280">Read-only view — configured by your supervisor</span>
+          <button class="btn btn-ghost btn-sm" onclick="renderAgentLiveQueue()" style="margin-left:auto">↻ Refresh</button>
+        </div>
+        <div id="ag-lq-grid" class="lq-grid"></div>
       </div>
     </div>
   </div>
@@ -1498,6 +1525,101 @@ function applyAircallVisibility(){
     right.style.display = 'none';
   }
 }
+
+// ── Agent tab switcher ────────────────────────────────────────────────────────
+function agentTab(tabName){
+  var tabs = ['dashboard','livequeue'];
+  tabs.forEach(function(t){
+    var btn = document.getElementById('ag-tab-btn-'+t);
+    var content = document.getElementById('ag-tab-'+t);
+    if(!btn || !content) return;
+    if(t === tabName){
+      btn.classList.add('active');
+      content.style.display = '';
+    } else {
+      btn.classList.remove('active');
+      content.style.display = 'none';
+    }
+  });
+  // Render the live queue when its tab is opened
+  if(tabName === 'livequeue') renderAgentLiveQueue();
+}
+
+// ── Read-only Live Queue render for agents ────────────────────────────────────
+function renderAgentLiveQueue(){
+  loadLiveQueueLayout();
+  var grid = document.getElementById('ag-lq-grid');
+  if(!grid) return;
+  grid.innerHTML = '';
+
+  var tables = liveQueueTables.slice().sort(function(a,b){ return (a.order||0) - (b.order||0); });
+
+  tables.forEach(function(t){
+    var agents = filterAgentsByStatus(t.statuses || []);
+    var card = document.createElement('div');
+    card.className = 'lq-table-card';
+    card.style.gridColumn = 'span ' + (t.w || 6);
+    card.style.gridRow = 'span ' + (t.h || 1);
+    card.style.minHeight = (200 + ((t.h||1)-1)*150) + 'px';
+
+    var head = document.createElement('div');
+    head.className = 'lq-table-head';
+    head.style.cursor = 'default';
+    head.innerHTML = '<span class="lq-table-title">'+escapeHtml(t.title)+'</span>'
+      + '<span class="lq-table-count">'+agents.length+' agent'+(agents.length===1?'':'s')+'</span>';
+    card.appendChild(head);
+
+    var body = document.createElement('div');
+    body.className = 'lq-table-body';
+    if(!agents.length){
+      body.innerHTML = '<div class="lq-empty">No agents match this filter.</div>';
+    } else {
+      var frag = document.createDocumentFragment();
+      agents.forEach(function(a, i){
+        frag.appendChild(buildAgentRowReadOnly(a, t, i, agents.length));
+      });
+      body.appendChild(frag);
+    }
+    card.appendChild(body);
+    grid.appendChild(card);
+  });
+}
+
+// Builds an agent row WITHOUT action buttons (read-only for agents)
+function buildAgentRowReadOnly(a, t, idx, total){
+  var row = document.createElement('div');
+  row.className = 'lq-agent-row';
+
+  var isMe = currentUser && String(a.id)===String(currentUser.id);
+
+  var posHtml = '<span class="lq-pos'+(a.status==='Available' && idx===0?' top':'')+'">'
+    + (a.status==='Available' ? (a.queuePosition || (idx+1)) : '—')
+    + '</span>';
+  var avHtml = '<div class="avatar" style="background:#dbeafe;color:#1e40af">'+initials(a.name)+'</div>';
+  var nameHtml = '<span style="font-weight:600;color:#1a1a1a">'+escapeHtml(a.name)+(isMe?'<span class="you-tag">you</span>':'')+'</span>';
+
+  var timerHtml = '';
+  var ts = null;
+  if(a.status==='Available' && a.queueJoin){
+    ts = new Date(a.queueJoin).getTime();
+    timerHtml = '<span class="wait-time" data-start="'+ts+'">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else if(a.status==='On Call' && a.callStart){
+    ts = new Date(a.callStart).getTime();
+    timerHtml = '<span class="call-timer" data-start="'+ts+'" data-status="On Call">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else if(a.auxStart){
+    ts = new Date(a.auxStart).getTime();
+    timerHtml = '<span class="wait-time" data-start="'+ts+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else {
+    timerHtml = '<span style="color:#94a3b8;font-size:11px">—</span>';
+  }
+
+  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px">'+a.status+'</span>';
+  // No action button column for agents — empty span to keep grid alignment
+  var actionHtml = '<span></span>';
+
+  row.innerHTML = posHtml + avHtml + nameHtml + timerHtml + badgeHtml + actionHtml;
+  return row;
+}
 function manualRefreshAgent(){
   if(agentTimer) clearTimeout(agentTimer);
   _agentPolling=false;
@@ -1520,7 +1642,7 @@ function manualRefreshAgent(){
 function renderAgentView(){
   var me=allAgents.find(function(a){return String(a.id)===String(currentUser.id);})||{status:currentUser.status||'Available'};
   currentUser.status=me.status;
-  var q=getQueue(),oc=getOnCall(),off=getOff();
+  var q=getQueue(),oc=getOnCall();
 
   var badge=document.getElementById('ag-status-badge');
   badge.textContent=me.status;badge.className='badge '+statusBadgeClass(me.status);
@@ -1567,21 +1689,11 @@ function renderAgentView(){
     oca.appendChild(div);
   });
 
-  var offd=document.getElementById('ag-offqueue');offd.innerHTML='';
-  if(off.length){
-    var lbl=document.createElement('div');lbl.className='sec-label';lbl.textContent='Not in queue';offd.appendChild(lbl);
-    off.forEach(function(a){
-      var auxTs=a.auxStart?new Date(a.auxStart).getTime():Date.now();
-      var div=document.createElement('div');div.className='q-row off-slot';
-      div.innerHTML='<span class="q-rank">—</span>'
-        +'<span class="q-name">'+a.name+'</span>'
-        +'<span class="wait-time" data-start="'+auxTs+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-auxTs)/1000)+'</span>'
-        +'<span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span>';
-      offd.appendChild(div);
-    });
-  }
   updateCrmLock();
   checkCallAlert();
+  // If Live queue tab is currently active, also re-render it
+  var lqTab = document.getElementById('ag-tab-livequeue');
+  if(lqTab && lqTab.style.display !== 'none') renderAgentLiveQueue();
 }
 
 function renderAgentLogs(){
