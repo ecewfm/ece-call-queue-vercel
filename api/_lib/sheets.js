@@ -38,6 +38,20 @@ export async function writeRange(range, values) {
   });
 }
 
+// Batch update multiple ranges in ONE API call — drastically faster for bulk ops
+// updates = [{ range: 'Agents!F2:G2', values: [['Break', '']] }, ...]
+export async function batchUpdateValues(updates) {
+  if (!updates || !updates.length) return;
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      valueInputOption: 'USER_ENTERED',
+      data: updates,
+    },
+  });
+}
+
 export async function appendRow(sheetName, row) {
   const sheets = getSheets();
   await sheets.spreadsheets.values.append({
