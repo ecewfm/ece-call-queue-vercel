@@ -104,7 +104,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 .hm-3{background:#059669;color:#fff}
 .hm-4{background:#065f46;color:#fff}
 .report-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem}
-.report-agent-row{display:grid;grid-template-columns:1fr 58px 88px 82px 78px 78px;gap:7px;align-items:center;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px}
+.report-agent-row{display:grid;grid-template-columns:1fr 58px 58px 88px 82px 78px 78px;gap:7px;align-items:center;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px}
 .report-agent-row:last-child{border-bottom:none}
 .report-head{font-weight:700;color:#6b7280;font-size:11px;text-transform:uppercase;background:#f8fafc;border-radius:7px;margin-bottom:4px}
 .export-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -119,6 +119,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 /* ── Call alert modal ── */
 #call-alert-modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:99999}
 #call-alert-modal.active{display:flex}
+@keyframes pulse-red{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0.4)}50%{box-shadow:0 0 0 8px rgba(220,38,38,0)}}
 .cal-card{background:#fff;border-radius:16px;padding:2rem 2.5rem;text-align:center;max-width:380px;width:90%;border:2px solid #059669}
 .cal-ring{font-size:52px;margin-bottom:12px;animation:ring-anim 0.6s ease-in-out}
 @keyframes ring-anim{0%,100%{transform:rotate(0)}20%{transform:rotate(-15deg)}40%{transform:rotate(15deg)}60%{transform:rotate(-10deg)}80%{transform:rotate(10deg)}}
@@ -226,6 +227,12 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     </button>
     <br/>
     <button class="cal-dismiss-link" onclick="showDismissForm()">Dismiss</button>
+
+    <!-- Countdown — shown only in last 10 seconds before auto-skip -->
+    <div id="cal-countdown" style="display:none;margin-top:14px;padding:10px;background:#fee2e2;border:2px solid #dc2626;border-radius:8px;animation:pulse-red 1s ease-in-out infinite">
+      <span style="font-size:13px;font-weight:700;color:#991b1b">⏱️ Auto-skip in <span id="cal-countdown-num">10</span>s</span>
+      <div style="font-size:11px;color:#7f1d1d;margin-top:2px">If you don't respond, the call will go to the next agent.</div>
+    </div>
 
     <!-- Avoidance form — hidden until dismiss clicked -->
     <div class="cal-avoidance-form" id="cal-avoidance-form">
@@ -666,7 +673,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         <div class="card" style="margin-bottom:1rem">
           <div class="card-title">👤 Per-agent breakdown</div>
           <div class="report-agent-row report-head">
-            <span>Agent</span><span>Calls</span><span>Avg duration</span><span>Available time</span><span>Break time</span><span>Away time</span>
+            <span>Agent</span><span>Calls</span><span>Missed</span><span>Avg duration</span><span>Available time</span><span>Break time</span><span>Away time</span>
           </div>
           <div id="rpt-agent-table"></div>
         </div>
@@ -707,6 +714,13 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
           <div style="display:flex;align-items:center;gap:6px">
             <input type="number" id="thr-interval" value="3" min="1" max="60" style="width:65px"/>
             <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
+        <div class="threshold-row">
+          <label>⏱️ Call response time — auto-skip if agent doesn't respond within</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-callresp" value="30" min="5" max="300" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">sec</span>
           </div>
         </div>
       </div>
@@ -863,7 +877,7 @@ window.google.script.run = {
 [
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
-  'markCallEnded','logCallAvoidance','createAgent','updateAgent','deleteAgent',
+  'markCallEnded','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary'
 ].forEach(function(fn){
@@ -888,6 +902,7 @@ function _mapArgsToParams(fn, args){
     markCallReceived:            ['agentId','callerRole'],
     markCallEnded:               ['agentId','callerRole'],
     logCallAvoidance:            ['agentId','note'],
+    logMissedCall:               ['agentId','secondsElapsed'],
     createAgent:                 ['name','username','password','role'],
     updateAgent:                 ['agentId','name','username','password','role'],
     deleteAgent:                 ['agentId'],
@@ -922,7 +937,7 @@ var _adminPolling  = false;  // prevents overlapping admin polls
 var _syncPaused    = false;  // pause/resume sync toggle
 var lastAlertTs    = 0;
 var alertDismissed = false;
-var thresholds = { emptyQueue:1, maxWaitMin:5, reAlertMin:3, onCallMin:10, breakMin:15, lunchMin:30, coachingMin:30, meetingMin:60, outboundMin:10 };
+var thresholds = { emptyQueue:1, maxWaitMin:5, reAlertMin:3, onCallMin:10, breakMin:15, lunchMin:30, coachingMin:30, meetingMin:60, outboundMin:10, callResponseSec:30 };
 
 // ── Formatters ──────────────────────────────────────────────────────────────
 function initials(n){ return (n||'').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); }
@@ -1248,6 +1263,7 @@ function saveThresholds(){
   thresholds.coachingMin =parseInt(document.getElementById('thr-coaching').value)||30;
   thresholds.meetingMin  =parseInt(document.getElementById('thr-meeting').value)||60;
   thresholds.outboundMin =parseInt(document.getElementById('thr-outbound').value)||10;
+  thresholds.callResponseSec =parseInt(document.getElementById('thr-callresp').value)||30;
   toast('Settings saved','success');
 }
 
@@ -1412,12 +1428,17 @@ function renderAgentLogs(){
   if(!allLogs||!allLogs.length){ll.innerHTML='<div class="empty-state">No log entries yet.</div>';return;}
   allLogs.slice(0,30).forEach(function(l){
     var isAvoidance=(l.event==='Call Avoidance');
+    var isMissed=(l.event==='Missed Call');
+    var isFlagged=isAvoidance||isMissed;
     var div=document.createElement('div');div.className='log-entry';
-    if(isAvoidance) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    if(isFlagged) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    var flagHtml='';
+    if(isAvoidance) flagHtml='<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>';
+    else if(isMissed) flagHtml='<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ MISSED</span>';
     div.innerHTML='<span>'+l.timestamp+'</span><span>'+l.agentName+'</span>'
       +'<span>'+(l.fromStatus||'—')+'</span><span>'+(l.toStatus||'—')+'</span>'
       +'<span style="color:'+(l.durationSec?'#059669':'#94a3b8')+'">'+fmtDuration(l.durationSec)+'</span>'
-      +'<span>'+(isAvoidance?'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>':'')+l.event+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
+      +'<span>'+flagHtml+l.event+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
     ll.appendChild(div);
   });
 }
@@ -1480,6 +1501,9 @@ function playAlertChime() {
 }
 
 // ── Show / hide modal ────────────────────────────────────────────────────────
+var _missedCallTimer = null;
+var _countdownInterval = null;
+
 function showCallAlert() {
   if(_alertShowing) return;
   _alertShowing = true;
@@ -1487,13 +1511,80 @@ function showCallAlert() {
   document.getElementById('cal-avoidance-form').style.display = 'none';
   document.getElementById('cal-note').value = '';
   document.getElementById('cal-note-err').style.display = 'none';
+  document.getElementById('cal-countdown').style.display = 'none'; // hidden initially
   document.getElementById('call-alert-modal').classList.add('active');
   playAlertChime();
+
+  // Start auto-skip timer
+  startMissedCallTimer();
+}
+
+function startMissedCallTimer() {
+  // Clear any prior timer
+  if(_missedCallTimer) { clearTimeout(_missedCallTimer); _missedCallTimer = null; }
+  if(_countdownInterval) { clearInterval(_countdownInterval); _countdownInterval = null; }
+
+  var totalSec = thresholds.callResponseSec || 30;
+  var warningSec = 10; // show countdown only in last 10s
+  var startedAt = Date.now();
+
+  // Tick every second to check if we need to show the countdown
+  _countdownInterval = setInterval(function(){
+    var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    var remaining = totalSec - elapsed;
+    if(remaining <= warningSec && remaining > 0){
+      document.getElementById('cal-countdown').style.display = 'block';
+      document.getElementById('cal-countdown-num').textContent = remaining;
+      // Add a soft beep in the final 3 seconds
+      if(remaining <= 3) playCountdownBeep();
+    }
+    if(remaining <= 0){
+      clearInterval(_countdownInterval);
+      _countdownInterval = null;
+    }
+  }, 500);
+
+  // Auto-skip after threshold elapsed
+  _missedCallTimer = setTimeout(function(){
+    handleMissedCall(totalSec);
+  }, totalSec * 1000);
+}
+
+function playCountdownBeep() {
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    var ctx = new AC();
+    var osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+  } catch(e) {}
+}
+
+function handleMissedCall(secondsElapsed) {
+  hideCallAlert();
+  if(!currentUser) return;
+  google.script.run
+    .withSuccessHandler(function(data){
+      allAgents=data; renderAgentView();
+      toast('⚑ Missed call — your status is now Not Available','error');
+      setRefreshed('agent');
+    })
+    .withFailureHandler(function(){
+      toast('Missed call logged — refresh to update','error');
+    })
+    .logMissedCall(currentUser.id, secondsElapsed);
 }
 
 function hideCallAlert() {
   _alertShowing = false;
   document.getElementById('call-alert-modal').classList.remove('active');
+  // Clear timers
+  if(_missedCallTimer) { clearTimeout(_missedCallTimer); _missedCallTimer = null; }
+  if(_countdownInterval) { clearInterval(_countdownInterval); _countdownInterval = null; }
 }
 
 // ── Modal action: agent receives call ────────────────────────────────────────
@@ -1829,12 +1920,17 @@ function renderAdminLogs(logs){
   data.forEach(function(l){
     if(!l)return;
     var isAvoidance=(l.event==='Call Avoidance');
+    var isMissed=(l.event==='Missed Call');
+    var isFlagged=isAvoidance||isMissed;
     var div=document.createElement('div');div.className='log-entry';
-    if(isAvoidance) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    if(isFlagged) div.style.cssText='background:#fff5f5;border-left:3px solid #dc2626;padding-left:8px;border-radius:0';
+    var flagHtml='';
+    if(isAvoidance) flagHtml='<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>';
+    else if(isMissed) flagHtml='<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ MISSED</span>';
     div.innerHTML='<span>'+l.timestamp+'</span><span>'+(l.agentName||'')+'</span>'
       +'<span>'+(l.fromStatus||'—')+'</span><span>'+(l.toStatus||'—')+'</span>'
       +'<span style="color:'+(l.durationSec?'#059669':'#94a3b8')+'">'+fmtDuration(l.durationSec)+'</span>'
-      +'<span>'+(isAvoidance?'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-right:4px">⚑ AVOIDANCE</span>':'')+( l.event||'')+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
+      +'<span>'+flagHtml+( l.event||'')+(l.note?'<span style="color:#94a3b8"> '+l.note+'</span>':'')+'</span>';
     frag.appendChild(div);
   });
   ll.appendChild(frag);
@@ -1886,10 +1982,12 @@ function renderReports(from,to){
   var agents=allAgents.filter(function(a){return a.role==='agent';});
   var tc=logs.filter(function(l){return l.event==='Call Received';}).length;
   var te=logs.filter(function(l){return l.event==='Call Ended';}).length;
+  var tm=logs.filter(function(l){return l.event==='Missed Call';}).length;
   var td=logs.reduce(function(s,l){return s+(l.durationSec||0);},0);
   var avg=te>0?Math.round(td/te):0;
   document.getElementById('rpt-summary').innerHTML=[
     {n:tc,l:'Calls received'},{n:te,l:'Calls completed'},
+    {n:tm,l:'Missed calls'},
     {n:fmtDuration(avg),l:'Avg call duration'},{n:agents.length,l:'Agents in period'}
   ].map(function(s){return '<div class="stat-box"><div class="stat-n" style="font-size:'+(String(s.n).length>5?'16px':'24px')+'">'+s.n+'</div><div class="stat-l">'+s.l+'</div></div>';}).join('');
 
@@ -1899,6 +1997,7 @@ function renderReports(from,to){
   agents.forEach(function(a){
     var s=auxSummary[a.name]||{availSec:0,breakSec:0,awaySec:0};
     var cl=logs.filter(function(l){return l.agentName===a.name&&l.event==='Call Received';}).length;
+    var ml=logs.filter(function(l){return l.agentName===a.name&&l.event==='Missed Call';}).length;
     var dl=logs.filter(function(l){return l.agentName===a.name&&l.event==='Call Ended';}).reduce(function(x,l){return x+(l.durationSec||0);},0);
     var ag=cl>0?Math.round(dl/cl):0;
     var div=document.createElement('div');div.className='report-agent-row';
@@ -1906,6 +2005,7 @@ function renderReports(from,to){
       +'<div class="avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
       +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
       +'<span style="font-weight:700;font-size:15px;color:#059669">'+cl+'</span>'
+      +'<span style="font-weight:700;font-size:14px;color:'+(ml>0?'#dc2626':'#94a3b8')+'">'+ml+'</span>'
       +'<span>'+fmtDuration(ag)+'</span>'
       +'<span class="badge b-avail">'+fmtHours(s.availSec)+'</span>'
       +'<span class="badge b-break">'+fmtHours(s.breakSec)+'</span>'
