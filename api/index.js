@@ -1,6 +1,6 @@
 // api/index.js — main API router for all backend functions
 import crypto from 'crypto';
-import { readRange, writeRange, appendRow, getSheets } from './_lib/sheets.js';
+import { readRange, writeRange, appendRow, getSheets, batchUpdateValues } from './_lib/sheets.js';
 
 const SALT = process.env.SALT || 'ECE_QUEUE_2026';
 const SHEET_ID = process.env.SHEET_ID;
@@ -35,7 +35,7 @@ async function logEvent(agentId, agentName, event, fromStatus, toStatus, ts, dur
 // ── Get all agents (returns objects) ──────────────────────────────────────────
 
 async function getAllAgents() {
-  const rows = await readRange('Agents!A2:M');
+  const rows = await readRange('Agents!A2:N');
   return rows.filter(r => r[0]).map(r => ({
     id: r[0],
     name: r[1],
@@ -47,7 +47,8 @@ async function getAllAgents() {
     queuePosition: r[8] || '',
     auxStart: r[9] ? new Date(r[9]).toISOString() : null,
     passwordChanged: r[10] === true || r[10] === 'TRUE',
-    securityQuestion: r[11] || ''
+    securityQuestion: r[11] || '',
+    aircallPref: r[13] || ''  // column N: '', 'show', or 'hide'
   }));
 }
 
@@ -63,7 +64,7 @@ async function getAgentRowIndex(agentId) {
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 
 async function login(username, password) {
-  const rows = await readRange('Agents!A2:M');
+  const rows = await readRange('Agents!A2:N');
   const hashed = hashPassword(password);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -84,7 +85,8 @@ async function login(username, password) {
           id: r[0], name: r[1], username: r[2], role,
           status: role === 'agent' ? 'Not Available' : r[5],
           passwordChanged: r[10] === true || r[10] === 'TRUE',
-          securityQuestion: r[11] || ''
+          securityQuestion: r[11] || '',
+          aircallPref: r[13] || ''
         }
       };
     }
@@ -244,15 +246,16 @@ async function recalculateQueue() {
   }
   avail.sort((a, b) => a.joinTime - b.joinTime);
 
-  // Clear all queue positions
-  const clearValues = rows.map(() => ['']);
-  if (clearValues.length) {
-    await writeRange(`Agents!I2:I${clearValues.length + 1}`, clearValues);
+  // Build the new queue position values for all rows in ONE batch update
+  const updates = [];
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    // Find this row's new position (if Available) or empty
+    const availEntry = avail.find(a => a.row === rowNum);
+    const newPos = availEntry ? String(avail.indexOf(availEntry) + 1) : '';
+    updates.push({ range: `Agents!I${rowNum}`, values: [[newPos]] });
   }
-  // Write new positions
-  for (let i = 0; i < avail.length; i++) {
-    await writeRange(`Agents!I${avail[i].row}`, [[i + 1]]);
-  }
+  if (updates.length) await batchUpdateValues(updates);
 }
 
 // ── ACCOUNT MANAGEMENT ────────────────────────────────────────────────────────
@@ -307,15 +310,26 @@ async function deleteAgent(agentId) {
 async function bulkSetStatus(agentIds, newStatus) {
   const rows = await readRange('Agents!A2:M');
   const now = nowDate();
+  const nowISO = now.toISOString();
   const idSet = new Set(agentIds.map(String));
+  const updates = [];
   let updated = 0;
   for (let i = 0; i < rows.length; i++) {
     if (!idSet.has(String(rows[i][0]))) continue;
     const rowNum = i + 2;
-    await writeRange(`Agents!F${rowNum}:G${rowNum}`, [[newStatus, newStatus === 'Available' ? now.toISOString() : '']]);
-    await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
+    // F:G = status + queueJoinTime, J = AUX start time
+    updates.push({
+      range: `Agents!F${rowNum}:G${rowNum}`,
+      values: [[newStatus, newStatus === 'Available' ? nowISO : '']]
+    });
+    updates.push({
+      range: `Agents!J${rowNum}`,
+      values: [[nowISO]]
+    });
     updated++;
   }
+  // ONE batch call writes all updates at once
+  if (updates.length) await batchUpdateValues(updates);
   if (updated > 0) {
     await logEvent(0, 'SYSTEM', 'Bulk AUX Change', '', newStatus, now, 0, `${updated} agents → ${newStatus} (admin override)`);
   }
@@ -349,7 +363,72 @@ async function bulkCreateAgents(newRows) {
   return { created: toAdd.length, errors, agents: await getAllAgents() };
 }
 
-// ── LOGS ──────────────────────────────────────────────────────────────────────
+// ── GLOBAL SETTINGS ───────────────────────────────────────────────────────────
+
+async function ensureSettingsSheet() {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  const exists = meta.data.sheets.some(s => s.properties.title === 'Settings');
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: 'Settings' } } }] }
+    });
+    // Seed with header row
+    await writeRange('Settings!A1:B1', [['Key', 'Value']]);
+  }
+}
+
+async function getGlobalSettings() {
+  await ensureSettingsSheet();
+  const rows = await readRange('Settings!A2:B');
+  const settings = { showAircall: true }; // defaults
+  rows.forEach(r => {
+    if (!r[0]) return;
+    let v = r[1];
+    if (v === 'true' || v === true) v = true;
+    else if (v === 'false' || v === false) v = false;
+    settings[r[0]] = v;
+  });
+  return settings;
+}
+
+async function saveGlobalSettings(settings) {
+  await ensureSettingsSheet();
+  // Read existing keys to know which to update vs append
+  const existing = await readRange('Settings!A2:B');
+  const keyToRow = {};
+  existing.forEach((r, i) => { if (r[0]) keyToRow[r[0]] = i + 2; });
+
+  const updates = [];
+  const appends = [];
+  for (const k in settings) {
+    if (!settings.hasOwnProperty(k)) continue;
+    const v = String(settings[k]);
+    if (keyToRow[k]) {
+      updates.push({ range: `Settings!B${keyToRow[k]}`, values: [[v]] });
+    } else {
+      appends.push([k, v]);
+    }
+  }
+  if (updates.length) await batchUpdateValues(updates);
+  for (const row of appends) await appendRow('Settings', row);
+
+  await logEvent(0, 'SYSTEM', 'Settings Updated', '', '', nowDate(), 0,
+    Object.keys(settings).map(k => `${k}=${settings[k]}`).join(', '));
+  return await getGlobalSettings();
+}
+
+async function setAircallPref(agentId, pref) {
+  // pref must be '', 'show', or 'hide'
+  const validPref = ['', 'show', 'hide'].includes(pref) ? pref : '';
+  const rowNum = await getAgentRowIndex(agentId);
+  if (!rowNum) return { success: false, error: 'Agent not found' };
+  await writeRange(`Agents!N${rowNum}`, [[validPref]]);
+  return { success: true, aircallPref: validPref };
+}
+
+
 
 function rowToLog(row) {
   if (!row[0]) return null;
@@ -425,7 +504,8 @@ async function getAgentAuxSummary(fromStr, toStr) {
 async function getInitialData(logLimit) {
   return {
     agents: await getAllAgents(),
-    logs: await getLogs(logLimit || 200)
+    logs: await getLogs(logLimit || 200),
+    settings: await getGlobalSettings()
   };
 }
 
@@ -479,6 +559,9 @@ export default async function handler(req, res) {
       case 'deleteAgent':               data = await deleteAgent(params.agentId); break;
       case 'bulkSetStatus':             data = await bulkSetStatus(params.agentIds, params.newStatus); break;
       case 'bulkCreateAgents':          data = await bulkCreateAgents(params.rows); break;
+      case 'getGlobalSettings':         data = await getGlobalSettings(); break;
+      case 'saveGlobalSettings':        data = await saveGlobalSettings(params.settings); break;
+      case 'setAircallPref':            data = await setAircallPref(params.agentId, params.pref); break;
       case 'getAllAgents':              data = await getAllAgents(); break;
       case 'getInitialData':            data = await getInitialData(params.logLimit); break;
       case 'getLogs':                   data = await getLogs(params.limit); break;
