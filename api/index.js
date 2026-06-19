@@ -218,6 +218,20 @@ async function logCallAvoidance(agentId, note) {
   return await getAllAgents();
 }
 
+async function logMissedCall(agentId, secondsElapsed) {
+  const rowNum = await getAgentRowIndex(agentId);
+  if (!rowNum) return await getAllAgents();
+  const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
+  const now = nowDate();
+  // Set agent to Not Available, clear queue join
+  await writeRange(`Agents!F${rowNum}:G${rowNum}`, [['Not Available', '']]);
+  await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
+  await logEvent(agentId, agentRow[1], 'Missed Call', 'Available', 'Not Available', now, 0,
+    `⚑ Auto-skipped after ${secondsElapsed || '?'}s — no response`);
+  await recalculateQueue();
+  return await getAllAgents();
+}
+
 // ── QUEUE ─────────────────────────────────────────────────────────────────────
 
 async function recalculateQueue() {
@@ -459,6 +473,7 @@ export default async function handler(req, res) {
       case 'markCallReceived':          data = await markCallReceived(params.agentId, params.callerRole); break;
       case 'markCallEnded':             data = await markCallEnded(params.agentId, params.callerRole); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
+      case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
       case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
       case 'updateAgent':               data = await updateAgent(params.agentId, params.name, params.username, params.password, params.role); break;
       case 'deleteAgent':               data = await deleteAgent(params.agentId); break;
