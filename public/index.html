@@ -15,6 +15,32 @@ body{font-family:Arial,sans-serif;font-size:14px;background:#f4f6f9;color:#1a1a1
 .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:#dbeafe;color:#1d4ed8;flex-shrink:0}
 .avatar.admin-av{background:#ede9fe;color:#6d28d9}
 .card{background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem}
+/* ── Customizable Live Queue grid ─────────────────────────────────────────── */
+.lq-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;grid-auto-rows:minmax(50px,auto)}
+.lq-table-card{background:#fff;border:1px solid #e2e6ea;border-radius:10px;padding:0;display:flex;flex-direction:column;overflow:hidden;position:relative;min-height:200px}
+.lq-table-card.dragging{opacity:.45;border:2px dashed #2563eb}
+.lq-table-card.drop-target{outline:2px dashed #059669;outline-offset:-4px}
+.lq-table-head{display:flex;align-items:center;gap:6px;padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e2e6ea;cursor:move;user-select:none}
+.lq-table-head:hover{background:#eef2f7}
+.lq-drag-handle{font-size:14px;color:#94a3b8;font-weight:700;cursor:grab}
+.lq-drag-handle:active{cursor:grabbing}
+.lq-table-title{flex:1;font-size:13px;font-weight:700;color:#1a1a1a}
+.lq-table-count{font-size:11px;color:#94a3b8;font-weight:600}
+.lq-icon-btn{background:transparent;border:none;cursor:pointer;font-size:14px;color:#6b7280;padding:2px 6px;border-radius:4px}
+.lq-icon-btn:hover{background:#e2e6ea;color:#1a1a1a}
+.lq-table-body{flex:1;overflow-y:auto;padding:6px 10px}
+.lq-empty{color:#94a3b8;font-size:12px;text-align:center;padding:20px;font-style:italic}
+/* Resize handles */
+.lq-resize-h{position:absolute;left:0;right:0;bottom:0;height:6px;cursor:ns-resize;background:transparent;transition:background .15s}
+.lq-resize-h:hover{background:#dbeafe}
+.lq-resize-w{position:absolute;top:0;bottom:0;right:0;width:6px;cursor:ew-resize;background:transparent;transition:background .15s}
+.lq-resize-w:hover{background:#dbeafe}
+/* Compact agent row inside live queue tables */
+.lq-agent-row{display:grid;grid-template-columns:24px 24px 1fr auto auto auto;gap:6px;align-items:center;padding:5px 6px;border-radius:6px;font-size:12px;border-bottom:1px solid #f1f5f9}
+.lq-agent-row:last-child{border-bottom:none}
+.lq-agent-row .avatar{width:22px;height:22px;font-size:10px}
+.lq-pos{font-weight:700;color:#2563eb;font-size:12px;width:20px;text-align:center}
+.lq-pos.top{color:#fff;background:#dc2626;border-radius:99px;width:22px;height:22px;line-height:22px;font-size:11px}
 .card-title{font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .badge{font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap;display:inline-block}
 .b-avail{background:#d1fae5;color:#065f46}
@@ -599,38 +625,44 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 
     <!-- TAB: Queue -->
     <div id="tab-queue" class="adm-tab">
-      <!-- Table 1: Available queue + On Call -->
-      <div class="card">
-        <div class="card-title">🔢 Available queue</div>
-        <div class="sec-label">Round robin order — supervisor can mark calls on behalf of any agent</div>
-        <div id="adm-queue-list"></div>
-        <div id="adm-oncall-area" style="margin-top:6px"></div>
+      <!-- Top toolbar -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:600;color:#6b7280">Live queue view —</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddTableModal()">+ Add table</button>
+        <button class="btn btn-ghost btn-sm" onclick="saveQueueLayout()">💾 Save layout</button>
+        <button class="btn btn-ghost btn-sm" onclick="resetQueueLayout()">↻ Reset to defaults</button>
+        <span style="font-size:11px;color:#94a3b8;margin-left:auto">Drag title bar to reorder · Drag bottom/right edges to resize</span>
       </div>
 
-      <!-- Table 2: Not in queue with status filter -->
-      <div class="card">
-        <div class="card-title">📋 Not in queue</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
-          <span style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-right:4px">Filter:</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Break" checked onchange="renderAdminOffQueue()"/> Break</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Lunch" checked onchange="renderAdminOffQueue()"/> Lunch</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Coaching" checked onchange="renderAdminOffQueue()"/> Coaching</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Meeting" checked onchange="renderAdminOffQueue()"/> Meeting</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Outbound Call" checked onchange="renderAdminOffQueue()"/> Outbound</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="Not Available" checked onchange="renderAdminOffQueue()"/> Not Available</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="End of Shift" checked onchange="renderAdminOffQueue()"/> End of Shift</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#374151;cursor:pointer">
-            <input type="checkbox" class="offq-filter-cb" value="On Call" checked onchange="renderAdminOffQueue()"/> On Call</label>
+      <!-- The grid where customizable tables render -->
+      <div id="lq-grid" class="lq-grid"></div>
+    </div>
+
+    <!-- ══ ADD/EDIT TABLE MODAL ════════════════════════════════════════════ -->
+    <div id="lq-table-modal" class="modal-overlay" role="dialog" aria-modal="true">
+      <div class="modal-box">
+        <div class="modal-title" id="lq-modal-title">+ Add table</div>
+        <div class="m-form-row">
+          <label>Table name</label>
+          <input type="text" id="lq-modal-name" placeholder="e.g. Coaching & Meeting"/>
         </div>
-        <div id="adm-offqueue"></div>
-        <div id="adm-offqueue-count" style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right"></div>
+        <div class="m-form-row">
+          <label>Show agents with these statuses:</label>
+          <div id="lq-modal-statuses" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px;border:1px solid #e2e6ea;border-radius:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Available"/> Available</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="On Call"/> On Call</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Break"/> Break</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Lunch"/> Lunch</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Coaching"/> Coaching</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Meeting"/> Meeting</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Outbound Call"/> Outbound Call</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Not Available"/> Not Available</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="End of Shift"/> End of Shift</label>
+          </div>
+        </div>
+        <div class="m-err" id="lq-modal-err"></div>
+        <button class="m-btn m-btn-green" onclick="saveTableEdit()" id="lq-modal-save-btn">✔ Save table</button>
+        <button class="m-btn m-btn-ghost" onclick="closeAddTableModal()">Cancel</button>
       </div>
     </div>
 
@@ -1886,71 +1918,339 @@ function updateStats(){
   document.getElementById('s-eos').textContent      =cnt('End of Shift');
 }
 
-function renderAdminQueue(){
-  var q=getQueue(),oc=getOnCall();
-  var ql=document.getElementById('adm-queue-list');ql.innerHTML='';
-  if(!q.length&&!oc.length) ql.innerHTML='<div class="empty-state">No agents in queue.</div>';
-  q.forEach(function(a,i){
-    var startTs=a.queueJoin?new Date(a.queueJoin).getTime():Date.now();
-    var ws=Math.floor((Date.now()-startTs)/1000);
-    var pct=Math.min((ws/(thresholds.maxWaitMin*60))*100,100);
-    var fc=pct>=80?' crit':pct>=50?' warn':'';
-    var div=document.createElement('div');div.className='q-row'+(i===0?' top-slot':'');
-    div.innerHTML='<span class="q-rank">'+(i+1)+'</span>'
-      +'<span class="q-name">'+a.name+'</span>'
-      +'<span class="wait-time" data-start="'+startTs+'">'+fmtSecs(ws)+'</span>'
-      +'<span class="badge b-avail">Available</span>'
-      +'<button class="btn btn-danger btn-sm" onclick="adminReceiveCall('+a.id+')">📞 Call received</button>'
-      +'<div class="queue-time-bar" style="flex-basis:100%"><div class="queue-time-fill'+fc+'" style="width:'+Math.round(pct)+'%"></div></div>';
-    ql.appendChild(div);
-  });
-  var oca=document.getElementById('adm-oncall-area');oca.innerHTML='';
-  oc.forEach(function(a){
-    var st=a.callStart?new Date(a.callStart).getTime():Date.now();
-    var div=document.createElement('div');div.className='q-row oncall-slot';
-    div.innerHTML='<span class="q-rank">📞</span><span class="q-name">'+a.name+'</span>'
-      +'<span class="call-timer" data-start="'+st+'" data-status="On Call">'+fmtSecs((Date.now()-st)/1000)+'</span>'
-      +'<span class="badge b-oncall">On call</span>'
-      +'<button class="btn btn-blue btn-sm" onclick="adminEndCall('+a.id+')">✔ Call ended</button>';
-    oca.appendChild(div);
-  });
-  renderAdminOffQueue();
+// ══════════════════════════════════════════════════════════════════════════════
+// CUSTOMIZABLE LIVE QUEUE TABLES
+// ══════════════════════════════════════════════════════════════════════════════
+
+var DEFAULT_LQ_TABLES = [
+  { id:'available', title:'🟢 Available Queue', statuses:['Available'], w:6, h:1, order:0, locked:true },
+  { id:'oncall',    title:'📞 On Call',          statuses:['On Call'],   w:6, h:1, order:1, locked:true },
+  { id:'breaks',    title:'☕ Breaks & Activities', statuses:['Break','Lunch','Coaching','Meeting','Outbound Call'], w:6, h:1, order:2, locked:true },
+  { id:'unavail',   title:'⚪ Not Available',     statuses:['Not Available','End of Shift'], w:6, h:1, order:3, locked:true }
+];
+
+var liveQueueTables = JSON.parse(JSON.stringify(DEFAULT_LQ_TABLES));
+var _lqDragSrc = null;
+var _lqEditingId = null;
+
+// Load from globalSettings if present
+function loadLiveQueueLayout(){
+  if(!globalSettings) return;
+  var saved = globalSettings.liveQueueLayout;
+  if(!saved) return;
+  try {
+    var parsed = (typeof saved === 'string') ? JSON.parse(saved) : saved;
+    if(Array.isArray(parsed) && parsed.length){
+      liveQueueTables = parsed;
+    }
+  } catch(e){ console.warn('Failed to parse liveQueueLayout', e); }
 }
 
-function renderAdminOffQueue(){
-  // Get selected filter statuses from checkboxes
-  var selectedStatuses={};
-  document.querySelectorAll('.offq-filter-cb').forEach(function(cb){
-    if(cb.checked) selectedStatuses[cb.value]=true;
-  });
+function renderAdminQueue(){
+  loadLiveQueueLayout();
+  var grid = document.getElementById('lq-grid');
+  if(!grid) return;
+  grid.innerHTML = '';
 
-  // Get all non-Available agents and filter by selected statuses
-  var allOff=allAgents.filter(function(a){
-    return a.role==='agent' && a.status!=='Available';
-  });
-  var filtered=allOff.filter(function(a){
-    return selectedStatuses[a.status];
-  });
+  // Sort tables by order
+  var tables = liveQueueTables.slice().sort(function(a,b){ return (a.order||0) - (b.order||0); });
 
-  var offd=document.getElementById('adm-offqueue');offd.innerHTML='';
-  if(!filtered.length){
-    offd.innerHTML='<div class="empty-state">No agents match the selected filters.</div>';
-  } else {
-    var frag=document.createDocumentFragment();
-    filtered.forEach(function(a){
-      var auxTs=a.auxStart?new Date(a.auxStart).getTime():(a.callStart?new Date(a.callStart).getTime():Date.now());
-      var div=document.createElement('div');div.className='q-row off-slot';
-      div.innerHTML='<span class="q-rank">—</span>'
-        +'<span class="q-name">'+a.name+'</span>'
-        +'<span class="wait-time" data-start="'+auxTs+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-auxTs)/1000)+'</span>'
-        +'<span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span>';
-      frag.appendChild(div);
+  tables.forEach(function(t, idx){
+    var agents = filterAgentsByStatus(t.statuses || []);
+    var card = document.createElement('div');
+    card.className = 'lq-table-card';
+    card.style.gridColumn = 'span ' + (t.w || 6);
+    card.style.gridRow = 'span ' + (t.h || 1);
+    card.style.minHeight = (200 + (t.h-1)*150) + 'px';
+    card.draggable = true;
+    card.dataset.tableId = t.id;
+
+    // Build the head bar
+    var head = document.createElement('div');
+    head.className = 'lq-table-head';
+    var lockNote = t.locked ? '' : '<button class="lq-icon-btn" title="Delete table" onclick="deleteTable(\''+t.id+'\')">🗑</button>';
+    head.innerHTML = '<span class="lq-drag-handle">⋮⋮</span>'
+      + '<span class="lq-table-title">'+escapeHtml(t.title)+'</span>'
+      + '<span class="lq-table-count">'+agents.length+' agent'+(agents.length===1?'':'s')+'</span>'
+      + '<button class="lq-icon-btn" title="Edit filter" onclick="openEditTableModal(\''+t.id+'\')">⚙</button>'
+      + lockNote;
+    card.appendChild(head);
+
+    // Body
+    var body = document.createElement('div');
+    body.className = 'lq-table-body';
+    if(!agents.length){
+      body.innerHTML = '<div class="lq-empty">No agents match this filter.</div>';
+    } else {
+      var frag = document.createDocumentFragment();
+      agents.forEach(function(a, i){
+        frag.appendChild(buildAgentRow(a, t, i, agents.length));
+      });
+      body.appendChild(frag);
+    }
+    card.appendChild(body);
+
+    // Resize handles
+    var resizeH = document.createElement('div'); resizeH.className = 'lq-resize-h';
+    var resizeW = document.createElement('div'); resizeW.className = 'lq-resize-w';
+    card.appendChild(resizeH);
+    card.appendChild(resizeW);
+
+    // Wire up drag-drop on the head
+    head.addEventListener('mousedown', function(){ card.draggable = true; });
+    card.addEventListener('dragstart', function(e){
+      _lqDragSrc = t.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', t.id); } catch(_e){}
     });
-    offd.appendChild(frag);
+    card.addEventListener('dragend', function(){
+      card.classList.remove('dragging');
+      document.querySelectorAll('.lq-table-card.drop-target').forEach(function(el){el.classList.remove('drop-target');});
+    });
+    card.addEventListener('dragover', function(e){
+      e.preventDefault();
+      if(_lqDragSrc && _lqDragSrc !== t.id) card.classList.add('drop-target');
+    });
+    card.addEventListener('dragleave', function(){ card.classList.remove('drop-target'); });
+    card.addEventListener('drop', function(e){
+      e.preventDefault();
+      card.classList.remove('drop-target');
+      if(_lqDragSrc && _lqDragSrc !== t.id){
+        swapTablesOrder(_lqDragSrc, t.id);
+        _lqDragSrc = null;
+      }
+    });
+
+    // Resize handlers
+    setupResize(resizeH, card, t, 'h');
+    setupResize(resizeW, card, t, 'w');
+
+    grid.appendChild(card);
+  });
+}
+
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
+
+function filterAgentsByStatus(statuses){
+  var set = {};
+  statuses.forEach(function(s){ set[s] = true; });
+  var filtered = allAgents.filter(function(a){
+    return a.role==='agent' && set[a.status];
+  });
+  // If this table includes Available, sort by queue position
+  if(set['Available']){
+    filtered.sort(function(a,b){
+      if(a.status==='Available' && b.status==='Available'){
+        var pa = parseInt(a.queuePosition)||999, pb = parseInt(b.queuePosition)||999;
+        return pa - pb;
+      }
+      if(a.status==='Available') return -1;
+      if(b.status==='Available') return 1;
+      return 0;
+    });
+  }
+  return filtered;
+}
+
+function buildAgentRow(a, t, idx, total){
+  var row = document.createElement('div');
+  row.className = 'lq-agent-row';
+
+  // Position column (only show for Available, otherwise dash)
+  var posHtml = '<span class="lq-pos'+(a.status==='Available' && idx===0?' top':'')+'">'
+    + (a.status==='Available' ? (a.queuePosition || (idx+1)) : '—')
+    + '</span>';
+
+  // Avatar
+  var avHtml = '<div class="avatar" style="background:#dbeafe;color:#1e40af">'+initials(a.name)+'</div>';
+
+  // Name
+  var nameHtml = '<span style="font-weight:600;color:#1a1a1a">'+escapeHtml(a.name)+'</span>';
+
+  // Timer (varies by status)
+  var timerHtml = '';
+  var ts = null, dataStatus = '';
+  if(a.status==='Available' && a.queueJoin){
+    ts = new Date(a.queueJoin).getTime();
+    timerHtml = '<span class="wait-time" data-start="'+ts+'">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else if(a.status==='On Call' && a.callStart){
+    ts = new Date(a.callStart).getTime();
+    timerHtml = '<span class="call-timer" data-start="'+ts+'" data-status="On Call">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else if(a.auxStart){
+    ts = new Date(a.auxStart).getTime();
+    timerHtml = '<span class="wait-time" data-start="'+ts+'" data-status="'+a.status+'">'+fmtSecs((Date.now()-ts)/1000)+'</span>';
+  } else {
+    timerHtml = '<span style="color:#94a3b8;font-size:11px">—</span>';
   }
 
-  var countEl=document.getElementById('adm-offqueue-count');
-  if(countEl) countEl.textContent='Showing '+filtered.length+' of '+allOff.length+' agents';
+  // Status badge
+  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px">'+a.status+'</span>';
+
+  // Action button — only for Available (#1) and On Call
+  var actionHtml = '';
+  if(a.status==='Available' && idx===0){
+    actionHtml = '<button class="btn btn-danger btn-sm" onclick="adminReceiveCall('+a.id+')">📞 Receive</button>';
+  } else if(a.status==='On Call'){
+    actionHtml = '<button class="btn btn-blue btn-sm" onclick="adminEndCall('+a.id+')">✔ End</button>';
+  }
+
+  row.innerHTML = posHtml + avHtml + nameHtml + timerHtml + badgeHtml + actionHtml;
+  return row;
+}
+
+// ── Drag-drop reorder ─────────────────────────────────────────────────────────
+
+function swapTablesOrder(srcId, destId){
+  var src = liveQueueTables.find(function(t){return t.id===srcId;});
+  var dest = liveQueueTables.find(function(t){return t.id===destId;});
+  if(!src || !dest) return;
+  var srcOrder = src.order, destOrder = dest.order;
+  src.order = destOrder; dest.order = srcOrder;
+  renderAdminQueue();
+}
+
+// ── Resize handler ───────────────────────────────────────────────────────────
+
+function setupResize(handle, card, table, dir){
+  handle.addEventListener('mousedown', function(e){
+    e.preventDefault(); e.stopPropagation();
+    card.draggable = false;  // disable drag during resize
+    var startX = e.clientX, startY = e.clientY;
+    var startW = table.w || 6, startH = table.h || 1;
+    var gridRect = document.getElementById('lq-grid').getBoundingClientRect();
+    var colWidth = (gridRect.width - 11*12) / 12; // 12 cols, 11 gaps of 12px
+
+    function onMove(ev){
+      if(dir === 'w'){
+        var dx = ev.clientX - startX;
+        var newW = Math.max(3, Math.min(12, Math.round(startW + dx / colWidth)));
+        if(newW !== table.w){
+          table.w = newW;
+          card.style.gridColumn = 'span ' + newW;
+        }
+      } else {
+        var dy = ev.clientY - startY;
+        var newH = Math.max(1, Math.min(4, Math.round(startH + dy / 200)));
+        if(newH !== table.h){
+          table.h = newH;
+          card.style.gridRow = 'span ' + newH;
+          card.style.minHeight = (200 + (newH-1)*150) + 'px';
+        }
+      }
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      card.draggable = true;
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Add/edit table modal ──────────────────────────────────────────────────────
+
+function openAddTableModal(){
+  _lqEditingId = null;
+  document.getElementById('lq-modal-title').textContent = '+ Add table';
+  document.getElementById('lq-modal-name').value = '';
+  document.querySelectorAll('.lq-modal-st').forEach(function(cb){ cb.checked = false; });
+  document.getElementById('lq-modal-err').style.display = 'none';
+  document.getElementById('lq-table-modal').classList.add('active');
+}
+
+function openEditTableModal(id){
+  var t = liveQueueTables.find(function(x){return x.id===id;});
+  if(!t) return;
+  _lqEditingId = id;
+  document.getElementById('lq-modal-title').textContent = '✎ Edit ' + (t.locked ? 'filter for "'+t.title+'"' : 'table');
+  document.getElementById('lq-modal-name').value = t.title;
+  document.getElementById('lq-modal-name').disabled = !!t.locked;
+  var statusSet = {};
+  (t.statuses || []).forEach(function(s){statusSet[s]=true;});
+  document.querySelectorAll('.lq-modal-st').forEach(function(cb){ cb.checked = !!statusSet[cb.value]; });
+  document.getElementById('lq-modal-err').style.display = 'none';
+  document.getElementById('lq-table-modal').classList.add('active');
+}
+
+function closeAddTableModal(){
+  document.getElementById('lq-table-modal').classList.remove('active');
+  document.getElementById('lq-modal-name').disabled = false;
+}
+
+function saveTableEdit(){
+  var name = document.getElementById('lq-modal-name').value.trim();
+  var statuses = [];
+  document.querySelectorAll('.lq-modal-st:checked').forEach(function(cb){ statuses.push(cb.value); });
+  var errEl = document.getElementById('lq-modal-err');
+  errEl.style.display = 'none';
+
+  if(!name){ errEl.textContent='Enter a table name.'; errEl.style.display='block'; return; }
+  if(!statuses.length){ errEl.textContent='Select at least one status.'; errEl.style.display='block'; return; }
+
+  if(_lqEditingId){
+    // Edit existing
+    var t = liveQueueTables.find(function(x){return x.id===_lqEditingId;});
+    if(t){
+      if(!t.locked) t.title = name;
+      t.statuses = statuses;
+    }
+  } else {
+    // Add new
+    var maxOrder = Math.max.apply(null, liveQueueTables.map(function(t){return t.order||0;}));
+    liveQueueTables.push({
+      id: 'custom_' + Date.now(),
+      title: name,
+      statuses: statuses,
+      w: 6, h: 1,
+      order: maxOrder + 1,
+      locked: false
+    });
+  }
+  closeAddTableModal();
+  renderAdminQueue();
+}
+
+function deleteTable(id){
+  var t = liveQueueTables.find(function(x){return x.id===id;});
+  if(!t || t.locked) return;
+  if(!confirm('Delete table "' + t.title + '"?')) return;
+  liveQueueTables = liveQueueTables.filter(function(x){return x.id!==id;});
+  renderAdminQueue();
+}
+
+// ── Save / Reset layout ───────────────────────────────────────────────────────
+
+function saveQueueLayout(){
+  var layoutJson = JSON.stringify(liveQueueTables);
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings = Object.assign(globalSettings, settings);
+      toast('Layout saved — all admins will see this','success');
+    })
+    .withFailureHandler(function(e){
+      toast('Failed to save layout: '+(e&&e.message?e.message:''),'error');
+    })
+    .saveGlobalSettings({ liveQueueLayout: layoutJson });
+}
+
+function resetQueueLayout(){
+  if(!confirm('Reset Live Queue layout to defaults? This affects ALL admins.')) return;
+  liveQueueTables = JSON.parse(JSON.stringify(DEFAULT_LQ_TABLES));
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings = Object.assign(globalSettings, settings);
+      renderAdminQueue();
+      toast('Layout reset to defaults','success');
+    })
+    .withFailureHandler(function(e){
+      toast('Failed to reset: '+(e&&e.message?e.message:''),'error');
+      renderAdminQueue();
+    })
+    .saveGlobalSettings({ liveQueueLayout: JSON.stringify(DEFAULT_LQ_TABLES) });
 }
 
 function renderAdminAux(){
