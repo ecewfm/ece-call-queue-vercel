@@ -163,6 +163,9 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 .agent-topbar{display:flex;align-items:center;gap:8px;background:#fff;border-bottom:1px solid #e2e6ea;padding:8px 16px;flex-shrink:0;flex-wrap:wrap}
 .agent-topbar h1{flex:0 0 auto}
 .agent-body{display:grid;grid-template-columns:300px 1fr;flex:1;overflow:hidden;min-height:0}
+.agent-body.no-aircall{grid-template-columns:1fr}
+.agent-body.no-aircall .agent-left{border-right:none;padding:1rem}
+.agent-body.no-aircall .alp-scroll{max-width:1000px;margin:0 auto}
 /* Left panel */
 .agent-left{display:flex;flex-direction:column;background:#fff;border-right:1px solid #e2e6ea;overflow:hidden}
 .alp-section{padding:10px 12px;border-bottom:1px solid #e2e6ea;flex-shrink:0}
@@ -378,6 +381,38 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       <button class="btn btn-primary" onclick="profChangeSQ()" style="width:100%">Update security question</button>
     </div>
 
+    <!-- Aircall display preference -->
+    <div style="border-top:1px solid #e2e6ea;padding-top:16px;margin-top:16px">
+      <p style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:8px">📞 Aircall workspace display</p>
+      <p style="font-size:11px;color:#6b7280;margin-bottom:12px">Choose whether you want to see the embedded Aircall workspace.</p>
+      <div class="m-form-row">
+        <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #d1d5db;border-radius:7px;cursor:pointer;margin-bottom:6px">
+          <input type="radio" name="prof-aircall" value="" id="prof-aircall-global"/>
+          <span style="flex:1">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a">Use global setting</span>
+            <span id="prof-aircall-global-detail" style="display:block;font-size:11px;color:#6b7280">Follow the admin's setting (currently: Enabled)</span>
+          </span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #d1d5db;border-radius:7px;cursor:pointer;margin-bottom:6px">
+          <input type="radio" name="prof-aircall" value="show" id="prof-aircall-show"/>
+          <span style="flex:1">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a">Always show Aircall</span>
+            <span style="display:block;font-size:11px;color:#6b7280">Override global — always display Aircall workspace</span>
+          </span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #d1d5db;border-radius:7px;cursor:pointer">
+          <input type="radio" name="prof-aircall" value="hide" id="prof-aircall-hide"/>
+          <span style="flex:1">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a">Always hide Aircall</span>
+            <span style="display:block;font-size:11px;color:#6b7280">Override global — never display Aircall (full-width queue)</span>
+          </span>
+        </label>
+      </div>
+      <div class="m-err" id="prof-aircall-err"></div>
+      <div class="m-success" id="prof-aircall-ok"></div>
+      <button class="btn btn-primary" onclick="profSaveAircallPref()" style="width:100%">Save preference</button>
+    </div>
+
     <button class="m-btn m-btn-ghost" onclick="closeProfile()" style="margin-top:16px">Close</button>
   </div>
 </div>
@@ -452,10 +487,10 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     </div>
 
     <!-- ── Body: left panel + right CRM ── -->
-    <div class="agent-body">
+    <div class="agent-body" id="ag-body">
 
       <!-- LEFT: compact queue panel -->
-      <div class="agent-left">
+      <div class="agent-left" id="ag-left-panel">
 
         <div class="alp-section">
           <div class="alp-label">My status</div>
@@ -476,7 +511,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       </div>
 
       <!-- RIGHT: Aircall CRM iframe -->
-      <div class="agent-right">
+      <div class="agent-right" id="ag-right-panel">
 
         <!-- CRM header bar -->
         <div class="crm-bar">
@@ -772,6 +807,21 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-title">🎛️ Display settings (global)</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">These settings affect ALL agents. Individual agents can override their personal preference in their Profile settings.</p>
+        <div class="threshold-row">
+          <label>📞 Show Aircall workspace for all agents — uncheck to hide Aircall from everyone</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="gs-show-aircall" checked style="width:18px;height:18px;cursor:pointer"/>
+            <span id="gs-show-aircall-label" style="font-size:13px;font-weight:600;color:#059669">Enabled</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <button class="btn btn-primary" onclick="saveDisplaySettings()">💾 Save display settings</button>
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveThresholds()">💾 Save all settings</button>
         <button class="btn btn-ghost" onclick="testNotification()">🔔 Test notification</button>
@@ -878,7 +928,8 @@ window.google.script.run = {
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
   'markCallEnded','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
-  'bulkSetStatus','bulkCreateAgents','getAllAgents','getInitialData','getLogs',
+  'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
+  'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary'
 ].forEach(function(fn){
   window.google.script.run[fn] = function(){
@@ -903,6 +954,9 @@ function _mapArgsToParams(fn, args){
     markCallEnded:               ['agentId','callerRole'],
     logCallAvoidance:            ['agentId','note'],
     logMissedCall:               ['agentId','secondsElapsed'],
+    getGlobalSettings:           [],
+    saveGlobalSettings:          ['settings'],
+    setAircallPref:              ['agentId','pref'],
     createAgent:                 ['name','username','password','role'],
     updateAgent:                 ['agentId','name','username','password','role'],
     deleteAgent:                 ['agentId'],
@@ -927,6 +981,7 @@ var allLogs        = [];
 var filteredLogs   = [];
 var reportLogs     = [];
 var auxSummary     = {};
+var globalSettings = { showAircall: true };  // server-side global settings
 var editingId      = null;
 var agentTimer     = null;
 var adminTimer     = null;
@@ -1161,6 +1216,12 @@ function scheduleAgentPoll(){
         try {
           if(agents && agents.length){
             allAgents = agents;
+            // Sync any per-agent pref changes (admin may have changed)
+            var me = allAgents.find(function(a){return String(a.id)===String(currentUser.id);});
+            if(me && me.aircallPref !== currentUser.aircallPref){
+              currentUser.aircallPref = me.aircallPref || '';
+              applyAircallVisibility();
+            }
             renderAgentView();
             setRefreshed('agent');
           }
@@ -1253,6 +1314,46 @@ function sendBrowserNotification(msg){
   else if(Notification.permission!=='denied') Notification.requestPermission().then(function(p){if(p==='granted') new Notification('ECE Queue Alert',{body:msg});});
 }
 function testNotification(){sendBrowserNotification('Test — breach notification working!');toast('Test notification sent','success');}
+
+function saveDisplaySettings(){
+  var show = document.getElementById('gs-show-aircall').checked;
+  globalSettings.showAircall = show;
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings = Object.assign(globalSettings, settings);
+      toast('Display settings saved — agents will see the change on next refresh','success');
+      // Update label
+      var lbl = document.getElementById('gs-show-aircall-label');
+      if(lbl){
+        lbl.textContent = show ? 'Enabled' : 'Disabled';
+        lbl.style.color = show ? '#059669' : '#dc2626';
+      }
+    })
+    .withFailureHandler(function(e){
+      toast('Failed to save settings: '+(e&&e.message?e.message:''),'error');
+    })
+    .saveGlobalSettings({ showAircall: show });
+}
+
+// Live label sync when toggle changes
+function setupDisplaySettingsListeners(){
+  var cb = document.getElementById('gs-show-aircall');
+  if(!cb) return;
+  // Initialize from globalSettings
+  cb.checked = globalSettings.showAircall !== false;
+  var lbl = document.getElementById('gs-show-aircall-label');
+  if(lbl){
+    lbl.textContent = cb.checked ? 'Enabled' : 'Disabled';
+    lbl.style.color = cb.checked ? '#059669' : '#dc2626';
+  }
+  cb.addEventListener('change', function(){
+    if(lbl){
+      lbl.textContent = cb.checked ? 'Enabled' : 'Disabled';
+      lbl.style.color = cb.checked ? '#059669' : '#dc2626';
+    }
+  });
+}
+
 function saveThresholds(){
   thresholds.emptyQueue  =parseInt(document.getElementById('thr-empty').value)||1;
   thresholds.maxWaitMin  =parseInt(document.getElementById('thr-wait').value)||5;
@@ -1291,6 +1392,7 @@ function doLogin(){
       google.script.run
         .withSuccessHandler(function(d){
           allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+          if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
           document.getElementById('loading-screen').style.display='none';
           if(currentUser.role==='admin') showAdmin(); else showAgent();
         })
@@ -1335,10 +1437,34 @@ function showAgent(){
   document.getElementById('ag-avatar').textContent=initials(currentUser.name);
   document.getElementById('ag-name-label').textContent=currentUser.name;
   ensureTickRunning();
+  applyAircallVisibility();
   renderAgentView();renderAgentLogs();
   setRefreshed('agent');
   _agentPolling=false;
   scheduleAgentPoll();
+}
+
+// Determines if Aircall should be shown for the current user
+// Effective logic: personal pref overrides global. Empty pref = follow global.
+function shouldShowAircall(){
+  var personal = (currentUser && currentUser.aircallPref) || '';
+  if(personal === 'show') return true;
+  if(personal === 'hide') return false;
+  // Otherwise follow global
+  return globalSettings.showAircall !== false;
+}
+
+function applyAircallVisibility(){
+  var body = document.getElementById('ag-body');
+  var right = document.getElementById('ag-right-panel');
+  if(!body || !right) return;
+  if(shouldShowAircall()){
+    body.classList.remove('no-aircall');
+    right.style.display = '';
+  } else {
+    body.classList.add('no-aircall');
+    right.style.display = 'none';
+  }
 }
 function manualRefreshAgent(){
   if(agentTimer) clearTimeout(agentTimer);
@@ -1347,6 +1473,11 @@ function manualRefreshAgent(){
   google.script.run
     .withSuccessHandler(function(d){
       allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+      if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
+      // Update currentUser's aircallPref from refreshed data
+      var me = allAgents.find(function(a){return String(a.id)===String(currentUser.id);});
+      if(me) currentUser.aircallPref = me.aircallPref || '';
+      applyAircallVisibility();
       renderAgentView();renderAgentLogs();setRefreshed('agent');toast('Refreshed','success');
       scheduleAgentPoll();
     })
@@ -1719,6 +1850,7 @@ function manualRefreshAdmin(){
   google.script.run
     .withSuccessHandler(function(d){
       allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+      if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
       renderAdminQueue();renderAdminAux();renderAdminAgentTable();renderAdminLogs(allLogs);updateStats();checkBreaches();
       setRefreshed('admin');
       if(btn){btn.disabled=false;btn.innerHTML='↻ Refresh all';}
@@ -2158,6 +2290,8 @@ function adminTab(btn,tabId){
   btn.classList.add('active');
   document.querySelectorAll('.adm-tab').forEach(function(t){t.style.display='none';});
   document.getElementById(tabId).style.display='block';
+  // Initialize display settings UI when entering Settings tab
+  if(tabId === 'tab-settings') setupDisplaySettingsListeners();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2193,6 +2327,7 @@ function submitFirstTimeSetup(){
       google.script.run
         .withSuccessHandler(function(d){
           allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+          if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
           document.getElementById('loading-screen').style.display='none';
           if(currentUser.role==='admin') showAdmin(); else showAgent();
         })
@@ -2282,11 +2417,49 @@ function fpResetPassword(){
 function openProfile(){
   ['prof-curpass','prof-newpass','prof-newpass2','prof-sqpass','prof-sa'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('prof-sq').value='';
-  ['prof-pass-err','prof-pass-ok','prof-sq-err','prof-sq-ok'].forEach(function(id){document.getElementById(id).style.display='none';});
+  ['prof-pass-err','prof-pass-ok','prof-sq-err','prof-sq-ok','prof-aircall-err','prof-aircall-ok'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
+
+  // Initialize Aircall preference radio buttons
+  var pref = (currentUser && currentUser.aircallPref) || '';
+  document.getElementById('prof-aircall-global').checked = (pref === '');
+  document.getElementById('prof-aircall-show').checked   = (pref === 'show');
+  document.getElementById('prof-aircall-hide').checked   = (pref === 'hide');
+
+  // Show what global setting currently is
+  var globalDetail = document.getElementById('prof-aircall-global-detail');
+  if(globalDetail){
+    var globalState = globalSettings.showAircall !== false ? 'Enabled' : 'Disabled';
+    globalDetail.textContent = 'Follow the admin\'s setting (currently: ' + globalState + ')';
+  }
+
   document.getElementById('profile-modal').classList.add('active');
 }
 function closeProfile(){
   document.getElementById('profile-modal').classList.remove('active');
+}
+
+function profSaveAircallPref(){
+  var radios = document.getElementsByName('prof-aircall');
+  var chosen = '';
+  for(var i=0;i<radios.length;i++){ if(radios[i].checked){ chosen = radios[i].value; break; } }
+  var errEl = document.getElementById('prof-aircall-err');
+  var okEl  = document.getElementById('prof-aircall-ok');
+  errEl.style.display='none'; okEl.style.display='none';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res || !res.success){ errEl.textContent = (res&&res.error) || 'Failed to save.'; errEl.style.display='block'; return; }
+      currentUser.aircallPref = chosen;
+      okEl.textContent = 'Aircall preference saved!';
+      okEl.style.display='block';
+      applyAircallVisibility();
+      toast('Preference updated','success');
+    })
+    .withFailureHandler(function(e){
+      errEl.textContent = 'Error: ' + (e&&e.message?e.message:'');
+      errEl.style.display='block';
+    })
+    .setAircallPref(currentUser.id, chosen);
 }
 
 function profChangePass(){
