@@ -283,9 +283,11 @@ async function logCallAvoidance(agentId, note) {
   if (!rowNum) return await getAllAgents();
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const now = nowDate();
-  await writeRange(`Agents!G${rowNum}`, [[now.toISOString()]]);
+  // Dismissing a call now sets the agent to Not Available (pulled from the queue).
+  // F = status, G = queueJoinTime (cleared), J = AUX start time.
+  await writeRange(`Agents!F${rowNum}:G${rowNum}`, [['Not Available', '']]);
   await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
-  await logEvent(agentId, agentRow[1], 'Call Avoidance', 'Available', 'Available', now, 0, '⚑ ' + (note || 'No reason provided'));
+  await logEvent(agentId, agentRow[1], 'Call Avoidance', 'Available', 'Not Available', now, 0, '⚑ ' + (note || 'No reason provided'));
   await recalculateQueue();
   return await getAllAgents();
 }
