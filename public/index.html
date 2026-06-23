@@ -560,6 +560,9 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
           <p style="font-size:10px;color:#94a3b8;margin-top:4px">Only you can change your own status</p>
         </div>
 
+        <!-- Host for the disposition panel when Aircall is hidden -->
+        <div id="ag-disp-host-left" style="flex-shrink:0"></div>
+
         <div class="alp-scroll">
           <div class="alp-sec-label">
             🔢 Available queue
@@ -605,6 +608,9 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             </div>
           </div>
         </div>
+
+        <!-- Host for the disposition panel when Aircall is shown (below Aircall) -->
+        <div id="ag-disp-host-right" style="flex-shrink:0"></div>
 
         <!-- DISPOSITION PANEL — appears below Aircall during/after a call -->
         <div id="ag-disp-panel" style="display:none;flex-shrink:0;background:#fff;border-top:2px solid #06b6d4;max-height:48%;overflow-y:auto">
@@ -1731,6 +1737,28 @@ function applyAircallVisibility(){
     body.classList.add('no-aircall');
     right.style.display = 'none';
   }
+  relocateDispositionPanel();
+}
+
+// Move the disposition panel into the correct host depending on Aircall visibility.
+// When Aircall is hidden, the right panel is hidden too, so the form must live
+// in the left/main area; otherwise it sits below Aircall on the right.
+function relocateDispositionPanel(){
+  var panel = document.getElementById('ag-disp-panel');
+  if(!panel) return;
+  var hostLeft  = document.getElementById('ag-disp-host-left');
+  var hostRight = document.getElementById('ag-disp-host-right');
+  var target = shouldShowAircall() ? hostRight : hostLeft;
+  if(target && panel.parentNode !== target){
+    target.appendChild(panel);
+  }
+  // In the left/main area the panel can use more height; cap differently per host
+  if(target === hostLeft){
+    panel.style.maxHeight = 'none';
+    panel.style.borderTop = '2px solid #06b6d4';
+  } else {
+    panel.style.maxHeight = '48%';
+  }
 }
 
 // ── Agent tab switcher ────────────────────────────────────────────────────────
@@ -1998,6 +2026,7 @@ function agentEndCall(callerDropped){
 function showDispositionPanel(fillableDuringCall){
   var panel = document.getElementById('ag-disp-panel');
   if(!panel) return;
+  relocateDispositionPanel();   // ensure it's in the visible host (left if Aircall hidden)
   populateDispositionCategories();
   panel.style.display = 'block';
   // During an active call: form is fillable but Submit is disabled
@@ -2031,6 +2060,7 @@ function hideDispositionPanel(){
 function enterACWMode(){
   var panel = document.getElementById('ag-disp-panel');
   if(panel) panel.style.display='block';
+  relocateDispositionPanel();   // ensure visible host (left if Aircall hidden)
   populateDispositionCategories(); // keep options; preserves any selection? re-populate is fine
   document.getElementById('ag-disp-acw-wrap').style.display='inline-flex';
   document.getElementById('ag-disp-status-hint').style.display='none';
