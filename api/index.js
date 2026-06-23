@@ -274,7 +274,8 @@ async function getDispositions(limit) {
     category: r[5], subcategory: r[6], notes: r[7], callDurationSec: r[8]
   }));
   list.reverse();
-  return limit ? list.slice(0, limit) : list;
+  const n = parseInt(limit, 10);
+  return (n && n > 0) ? list.slice(0, n) : list;
 }
 
 async function logCallAvoidance(agentId, note) {
