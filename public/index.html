@@ -50,6 +50,7 @@ body{font-family:Arial,sans-serif;font-size:14px;background:#f4f6f9;color:#1a1a1
 .b-coaching{background:#ede9fe;color:#5b21b6}
 .b-meeting{background:#dbeafe;color:#1e40af}
 .b-outbound{background:#ccfbf1;color:#0f766e}
+.b-acw{background:#cffafe;color:#0e7490}
 .b-notavail{background:#f1f5f9;color:#475569}
 .b-eos{background:#fce7f3;color:#9d174d}
 .b-oncall{background:#fee2e2;color:#991b1b}
@@ -282,7 +283,55 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
   </div>
 </div>
 
-<!-- ══ FIRST-TIME PASSWORD SETUP MODAL ═══════════════════════════════════ -->
+<!-- ══ ACW (AFTER CALL WORK) OVERLAY ═════════════════════════════════════ -->
+<div id="acw-modal" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:99998">
+  <div style="background:#fff;border-radius:14px;padding:28px;max-width:560px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <span style="font-size:24px">📝</span>
+      <h2 style="margin:0;font-size:20px;color:#0e7490">After Call Work — Disposition</h2>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin:0 0 8px">Complete this form to log the call. You'll return to Available once submitted.</p>
+
+    <!-- ACW countdown -->
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#cffafe;border-radius:8px;margin-bottom:16px">
+      <span style="font-size:12px;font-weight:700;color:#0e7490">⏱️ ACW time remaining:</span>
+      <span id="acw-countdown" style="font-size:16px;font-weight:800;color:#0e7490;font-variant-numeric:tabular-nums">3:00</span>
+      <span style="font-size:11px;color:#0891b2;margin-left:auto" id="acw-expiry-note"></span>
+    </div>
+
+    <!-- Disposition form -->
+    <div class="m-form-row">
+      <label>Customer number</label>
+      <input type="text" id="disp-custnum" placeholder="e.g. +1 555 123 4567" maxlength="40"/>
+    </div>
+    <div class="m-form-row">
+      <label>Customer name</label>
+      <input type="text" id="disp-custname" placeholder="e.g. John Smith" maxlength="80"/>
+    </div>
+    <div class="m-form-row">
+      <label>Disposition category <span style="color:#dc2626">*</span></label>
+      <select id="disp-category" onchange="onDispCategoryChange()">
+        <option value="">— Select a category —</option>
+      </select>
+    </div>
+    <div class="m-form-row">
+      <label>Subcategory <span style="color:#dc2626">*</span></label>
+      <select id="disp-subcategory">
+        <option value="">— Select a category first —</option>
+      </select>
+    </div>
+    <div class="m-form-row">
+      <label>Notes</label>
+      <textarea id="disp-notes" rows="3" placeholder="Optional notes about the call…" maxlength="500"></textarea>
+    </div>
+    <div class="m-err" id="disp-err"></div>
+
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="m-btn m-btn-green" id="disp-submit-btn" onclick="submitDisposition()" style="flex:1">✔ Submit & Return to Available</button>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;text-align:center;margin:10px 0 0">If the ACW timer expires before you submit, you'll be returned to Available automatically and the call will be flagged for follow-up.</p>
+  </div>
+</div>
 <div id="first-time-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal-box">
     <div class="modal-title">🔐 Welcome! Set up your account</div>
@@ -629,7 +678,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 
     <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
       <div class="stat-box"><div id="s-avail" class="stat-n">—</div><div class="stat-l">Available</div></div>
-      <div class="stat-box"><div id="s-oncall" class="stat-n">—</div><div class="stat-l">On call</div></div>
+      <div class="stat-box"><div id="s-oncall" class="stat-n">—</div><div class="stat-l">On call / ACW</div></div>
       <div class="stat-box"><div id="s-break" class="stat-n">—</div><div class="stat-l">Break</div></div>
       <div class="stat-box"><div id="s-lunch" class="stat-n">—</div><div class="stat-l">Lunch</div></div>
     </div>
@@ -683,6 +732,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Coaching"/> Coaching</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Meeting"/> Meeting</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Outbound Call"/> Outbound Call</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="ACW"/> ACW</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="Not Available"/> Not Available</label>
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" class="lq-modal-st" value="End of Shift"/> End of Shift</label>
           </div>
@@ -864,6 +914,13 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <span style="font-size:12px;color:#374151">min</span>
           </div>
         </div>
+        <div class="threshold-row">
+          <label>📝 ACW (After Call Work) — auto-return to Available after</label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="thr-acw" value="3" min="1" max="30" style="width:65px"/>
+            <span style="font-size:12px;color:#374151">min</span>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -878,6 +935,17 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
           <button class="btn btn-primary" onclick="saveDisplaySettings()">💾 Save display settings</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🗂️ Disposition categories</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Categories and subcategories agents choose from after each call. Sample data is provided — edit as needed. Use one line per category in the format: <strong>Category: sub1, sub2, sub3</strong></p>
+        <textarea id="disp-cats-editor" rows="8" style="width:100%;font-family:Consolas,monospace;font-size:13px;padding:10px;border:1px solid #d1d5db;border-radius:8px;line-height:1.6" placeholder="Sales: New order, Upsell, Quote request&#10;Support: Technical issue, Billing question, Account update"></textarea>
+        <div class="m-err" id="disp-cats-err"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-primary" onclick="saveDispositionCategories()">💾 Save categories</button>
+          <button class="btn btn-ghost" onclick="loadDispositionCategoriesEditor()">↻ Reload</button>
         </div>
       </div>
 
@@ -986,7 +1054,7 @@ window.google.script.run = {
 [
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
-  'markCallEnded','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
+  'markCallEnded','finishACW','saveDisposition','getDispositions','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary'
@@ -1010,7 +1078,10 @@ function _mapArgsToParams(fn, args){
     resetPasswordWithSecurity:   ['username','securityAnswer','newPassword'],
     setMyStatus:                 ['agentId','newStatus','callerRole'],
     markCallReceived:            ['agentId','callerRole'],
-    markCallEnded:               ['agentId','callerRole'],
+    markCallEnded:               ['agentId','callerRole','callerDropped'],
+    finishACW:                   ['agentId','expired'],
+    saveDisposition:             ['disposition'],
+    getDispositions:             ['limit'],
     logCallAvoidance:            ['agentId','note'],
     logMissedCall:               ['agentId','secondsElapsed'],
     getGlobalSettings:           [],
@@ -1063,6 +1134,7 @@ function statusBadgeClass(s){
   if(s==='Coaching')      return 'b-coaching';
   if(s==='Meeting')       return 'b-meeting';
   if(s==='Outbound Call') return 'b-outbound';
+  if(s==='ACW')           return 'b-acw';
   if(s==='Not Available') return 'b-notavail';
   if(s==='End of Shift')  return 'b-eos';
   return 'b-away';
@@ -1105,7 +1177,7 @@ function show(id){
 }
 function getQueue(){ return allAgents.filter(function(a){return a.status==='Available'&&a.role==='agent';}).sort(function(a,b){return new Date(a.queueJoin)-new Date(b.queueJoin);}); }
 function getOnCall(){ return allAgents.filter(function(a){return a.status==='On Call'&&a.role==='agent';}); }
-var AUX_STATUSES = ['Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
+var AUX_STATUSES = ['Break','Lunch','Coaching','Meeting','Outbound Call','ACW','Not Available','End of Shift'];
 function getOff(){ return allAgents.filter(function(a){return AUX_STATUSES.indexOf(a.status)!==-1 && a.role==='agent';}); }
 
 // ── Live clock ──────────────────────────────────────────────────────────────
@@ -1411,6 +1483,64 @@ function setupDisplaySettingsListeners(){
       lbl.style.color = cb.checked ? '#059669' : '#dc2626';
     }
   });
+  // Initialize ACW threshold input from global settings
+  var acwInput = document.getElementById('thr-acw');
+  if(acwInput && globalSettings.acwThresholdSec){
+    acwInput.value = Math.round(parseInt(globalSettings.acwThresholdSec)/60) || 3;
+  }
+  // Initialize call response input
+  var crInput = document.getElementById('thr-callresp');
+  if(crInput && globalSettings.callResponseSec){
+    crInput.value = parseInt(globalSettings.callResponseSec) || 30;
+  }
+  // Load disposition categories editor
+  loadDispositionCategoriesEditor();
+}
+
+// ── Disposition categories management ─────────────────────────────────────────
+function loadDispositionCategoriesEditor(){
+  var ta = document.getElementById('disp-cats-editor');
+  if(!ta) return;
+  var cats = getDispositionCategories();
+  // Convert to "Category: sub1, sub2" lines
+  var lines = cats.map(function(c){
+    return c.category + ': ' + (c.subcategories||[]).join(', ');
+  });
+  ta.value = lines.join('\n');
+}
+
+function saveDispositionCategories(){
+  var ta = document.getElementById('disp-cats-editor');
+  var errEl = document.getElementById('disp-cats-err');
+  errEl.style.display='none';
+  var lines = ta.value.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var cats = [];
+  for(var i=0;i<lines.length;i++){
+    var line = lines[i];
+    var colonIdx = line.indexOf(':');
+    if(colonIdx === -1){
+      errEl.textContent = 'Line '+(i+1)+' is missing a colon. Format: Category: sub1, sub2';
+      errEl.style.display='block'; return;
+    }
+    var category = line.slice(0, colonIdx).trim();
+    var subsRaw = line.slice(colonIdx+1).trim();
+    if(!category){ errEl.textContent='Line '+(i+1)+' has an empty category name.'; errEl.style.display='block'; return; }
+    var subs = subsRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+    cats.push({ category: category, subcategories: subs });
+  }
+  if(!cats.length){ errEl.textContent='Add at least one category.'; errEl.style.display='block'; return; }
+
+  var json = JSON.stringify(cats);
+  globalSettings.dispositionCategories = json;
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings=Object.assign(globalSettings,settings);
+      toast('Disposition categories saved ('+cats.length+' categories)','success');
+    })
+    .withFailureHandler(function(e){
+      toast('Failed to save categories: '+(e&&e.message?e.message:''),'error');
+    })
+    .saveGlobalSettings({ dispositionCategories: json });
 }
 
 function saveThresholds(){
@@ -1424,7 +1554,18 @@ function saveThresholds(){
   thresholds.meetingMin  =parseInt(document.getElementById('thr-meeting').value)||60;
   thresholds.outboundMin =parseInt(document.getElementById('thr-outbound').value)||10;
   thresholds.callResponseSec =parseInt(document.getElementById('thr-callresp').value)||30;
-  toast('Settings saved','success');
+  var acwMin = parseInt(document.getElementById('thr-acw').value)||3;
+  thresholds.acwMin = acwMin;
+  // Persist ACW threshold + call response to global settings (agents need these)
+  globalSettings.acwThresholdSec = acwMin*60;
+  globalSettings.callResponseSec = thresholds.callResponseSec;
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings=Object.assign(globalSettings,settings);
+      toast('Settings saved','success');
+    })
+    .withFailureHandler(function(){ toast('Settings saved locally (server sync failed)','warning'); })
+    .saveGlobalSettings({ acwThresholdSec: acwMin*60, callResponseSec: thresholds.callResponseSec });
 }
 
 // ── Login ───────────────────────────────────────────────────────────────────
@@ -1644,12 +1785,17 @@ function renderAgentView(){
   currentUser.status=me.status;
   var q=getQueue(),oc=getOnCall();
 
+  // If agent is in ACW but the disposition modal is not open (e.g. page refreshed), reopen it
+  if(me.status==='ACW' && document.getElementById('acw-modal').style.display!=='flex'){
+    openACWDisposition();
+  }
+
   var badge=document.getElementById('ag-status-badge');
   badge.textContent=me.status;badge.className='badge '+statusBadgeClass(me.status);
 
   var sel=document.getElementById('ag-aux-sel');
   sel.innerHTML=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'].map(function(o){return '<option'+(me.status===o?' selected':'')+'>'+o+'</option>';}).join('');
-  sel.disabled=(me.status==='On Call');
+  sel.disabled=(me.status==='On Call'||me.status==='ACW');
 
   document.getElementById('ag-next-tag').textContent=q.length?'Next: '+q[0].name:'Queue empty';
 
@@ -1685,7 +1831,8 @@ function renderAgentView(){
       +'<span class="q-name">'+a.name+(isMe?'<span class="you-tag">you</span>':'')+'</span>'
       +'<span class="call-timer" data-start="'+st+'" data-status="On Call">'+fmtSecs((Date.now()-st)/1000)+'</span>'
       +'<span class="badge b-oncall">On call</span>'
-      +(isMe?'<button class="btn btn-blue btn-sm" onclick="agentEndCall()">✔ Call ended</button>':'');
+      +(isMe?'<button class="btn btn-blue btn-sm" onclick="agentEndCall(false)">✔ Call ended</button>'
+            +'<button class="btn btn-sm" style="background:#f59e0b;color:#fff" onclick="agentEndCall(true)">📵 Caller dropped</button>':'');
     oca.appendChild(div);
   });
 
@@ -1737,11 +1884,165 @@ function agentReceiveCall(){
     .withFailureHandler(function(){toast('Failed','error');})
     .markCallReceived(currentUser.id,'agent');
 }
-function agentEndCall(){
+var _acwCallDuration = 0;  // captured before call ended
+var _acwTimer = null;
+var _acwCountdownInterval = null;
+
+function agentEndCall(callerDropped){
+  // Capture current call duration before ending
+  var me = allAgents.find(function(a){return String(a.id)===String(currentUser.id);});
+  if(me && me.callStart){
+    _acwCallDuration = Math.round((Date.now() - new Date(me.callStart).getTime())/1000);
+  } else { _acwCallDuration = 0; }
+
   google.script.run
-    .withSuccessHandler(function(data){allAgents=data;renderAgentView();toast('Call ended — back in queue','success');setRefreshed('agent');})
-    .withFailureHandler(function(){toast('Failed','error');})
-    .markCallEnded(currentUser.id,'agent');
+    .withSuccessHandler(function(data){
+      allAgents=data; renderAgentView();
+      currentUser.status='ACW';
+      setRefreshed('agent');
+      openACWDisposition();
+    })
+    .withFailureHandler(function(){toast('Failed to end call','error');})
+    .markCallEnded(currentUser.id,'agent', !!callerDropped);
+}
+
+// ── ACW + Disposition flow ────────────────────────────────────────────────────
+function openACWDisposition(){
+  // Populate categories from globalSettings
+  populateDispositionCategories();
+  // Reset form
+  document.getElementById('disp-custnum').value='';
+  document.getElementById('disp-custname').value='';
+  document.getElementById('disp-category').value='';
+  document.getElementById('disp-subcategory').innerHTML='<option value="">— Select a category first —</option>';
+  document.getElementById('disp-notes').value='';
+  document.getElementById('disp-err').style.display='none';
+  document.getElementById('acw-expiry-note').textContent='';
+  document.getElementById('disp-submit-btn').disabled=false;
+  document.getElementById('acw-modal').style.display='flex';
+  startACWTimer();
+}
+
+function populateDispositionCategories(){
+  var sel = document.getElementById('disp-category');
+  sel.innerHTML='<option value="">— Select a category —</option>';
+  var cats = getDispositionCategories();
+  cats.forEach(function(c){
+    var opt=document.createElement('option');
+    opt.value=c.category; opt.textContent=c.category;
+    sel.appendChild(opt);
+  });
+}
+
+function getDispositionCategories(){
+  var raw = globalSettings.dispositionCategories;
+  if(!raw) return [];
+  try { return (typeof raw==='string') ? JSON.parse(raw) : raw; }
+  catch(e){ return []; }
+}
+
+function onDispCategoryChange(){
+  var cat = document.getElementById('disp-category').value;
+  var subSel = document.getElementById('disp-subcategory');
+  subSel.innerHTML='<option value="">— Select a subcategory —</option>';
+  if(!cat){ subSel.innerHTML='<option value="">— Select a category first —</option>'; return; }
+  var cats = getDispositionCategories();
+  var found = cats.find(function(c){return c.category===cat;});
+  if(found && found.subcategories){
+    found.subcategories.forEach(function(s){
+      var opt=document.createElement('option');
+      opt.value=s; opt.textContent=s;
+      subSel.appendChild(opt);
+    });
+  }
+}
+
+function startACWTimer(){
+  if(_acwTimer){clearTimeout(_acwTimer);_acwTimer=null;}
+  if(_acwCountdownInterval){clearInterval(_acwCountdownInterval);_acwCountdownInterval=null;}
+  var totalSec = parseInt(globalSettings.acwThresholdSec)||180;
+  var startedAt = Date.now();
+
+  function tick(){
+    var elapsed = Math.floor((Date.now()-startedAt)/1000);
+    var remaining = Math.max(0, totalSec - elapsed);
+    var m=Math.floor(remaining/60), s=remaining%60;
+    var el=document.getElementById('acw-countdown');
+    if(el){
+      el.textContent = m+':'+(s<10?'0':'')+s;
+      el.style.color = remaining<=30 ? '#dc2626' : '#0e7490';
+    }
+    if(remaining<=0){
+      clearInterval(_acwCountdownInterval); _acwCountdownInterval=null;
+    }
+  }
+  tick();
+  _acwCountdownInterval = setInterval(tick, 500);
+
+  _acwTimer = setTimeout(function(){
+    // ACW expired — auto-return to Available (flagged, no disposition if not submitted)
+    handleACWExpired();
+  }, totalSec*1000);
+}
+
+function handleACWExpired(){
+  closeACWModal();
+  toast('⚑ ACW time expired — returned to Available','error');
+  google.script.run
+    .withSuccessHandler(function(data){allAgents=data;currentUser.status='Available';renderAgentView();setRefreshed('agent');})
+    .withFailureHandler(function(){})
+    .finishACW(currentUser.id, true);
+}
+
+function submitDisposition(){
+  var cat = document.getElementById('disp-category').value;
+  var sub = document.getElementById('disp-subcategory').value;
+  var errEl = document.getElementById('disp-err');
+  errEl.style.display='none';
+
+  if(!cat){ errEl.textContent='Please select a disposition category.'; errEl.style.display='block'; return; }
+  if(!sub){ errEl.textContent='Please select a subcategory.'; errEl.style.display='block'; return; }
+
+  var disp = {
+    agentId: currentUser.id,
+    agentName: currentUser.name,
+    customerNumber: document.getElementById('disp-custnum').value.trim(),
+    customerName: document.getElementById('disp-custname').value.trim(),
+    category: cat,
+    subcategory: sub,
+    notes: document.getElementById('disp-notes').value.trim(),
+    callDurationSec: _acwCallDuration
+  };
+
+  document.getElementById('disp-submit-btn').disabled=true;
+
+  google.script.run
+    .withSuccessHandler(function(){
+      // Now finish ACW and return to Available
+      google.script.run
+        .withSuccessHandler(function(data){
+          allAgents=data; currentUser.status='Available';
+          closeACWModal();
+          renderAgentView(); setRefreshed('agent');
+          toast('Disposition saved — back in queue','success');
+        })
+        .withFailureHandler(function(){
+          closeACWModal();
+          toast('Disposition saved, but failed to return to queue — refresh','error');
+        })
+        .finishACW(currentUser.id, false);
+    })
+    .withFailureHandler(function(e){
+      document.getElementById('disp-submit-btn').disabled=false;
+      errEl.textContent='Failed to save: '+(e&&e.message?e.message:'try again'); errEl.style.display='block';
+    })
+    .saveDisposition(disp);
+}
+
+function closeACWModal(){
+  document.getElementById('acw-modal').style.display='none';
+  if(_acwTimer){clearTimeout(_acwTimer);_acwTimer=null;}
+  if(_acwCountdownInterval){clearInterval(_acwCountdownInterval);_acwCountdownInterval=null;}
 }
 
 // ── Call alert state ────────────────────────────────────────────────────────
@@ -2020,7 +2321,7 @@ function updateStats(){
   var ag=allAgents.filter(function(a){return a.role==='agent';});
   function cnt(s){return ag.filter(function(a){return a.status===s;}).length;}
   document.getElementById('s-avail').textContent   =cnt('Available');
-  document.getElementById('s-oncall').textContent   =cnt('On Call');
+  document.getElementById('s-oncall').textContent   =cnt('On Call')+cnt('ACW');
   document.getElementById('s-break').textContent    =cnt('Break');
   document.getElementById('s-lunch').textContent    =cnt('Lunch');
   document.getElementById('s-coaching').textContent =cnt('Coaching');
@@ -2036,7 +2337,7 @@ function updateStats(){
 
 var DEFAULT_LQ_TABLES = [
   { id:'available', title:'🟢 Available Queue', statuses:['Available'], w:6, h:1, order:0, locked:true },
-  { id:'oncall',    title:'📞 On Call',          statuses:['On Call'],   w:6, h:1, order:1, locked:true },
+  { id:'oncall',    title:'📞 On Call & ACW',     statuses:['On Call','ACW'],   w:6, h:1, order:1, locked:true },
   { id:'breaks',    title:'☕ Breaks & Activities', statuses:['Break','Lunch','Coaching','Meeting','Outbound Call'], w:6, h:1, order:2, locked:true },
   { id:'unavail',   title:'⚪ Not Available',     statuses:['Not Available','End of Shift'], w:6, h:1, order:3, locked:true }
 ];
@@ -2365,6 +2666,9 @@ function resetQueueLayout(){
     .saveGlobalSettings({ liveQueueLayout: JSON.stringify(DEFAULT_LQ_TABLES) });
 }
 
+// Persistent selection — survives auto-refresh re-renders
+var _auxSelectedIds = {};
+
 function renderAdminAux(){
   var c=document.getElementById('adm-aux-list');c.innerHTML='';
   allAgents.filter(function(a){return a.role==='agent';}).forEach(function(a){
@@ -2372,7 +2676,8 @@ function renderAdminAux(){
     var allOpts=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
     var cv=allOpts.indexOf(a.status)!==-1?a.status:'Available';
     var optHtml=allOpts.map(function(o){return '<option value="'+o+'"'+(cv===o?' selected':'')+'>'+o+'</option>';}).join('');
-    div.innerHTML='<input type="checkbox" class="aux-cb" data-agent-id="'+a.id+'" onchange="updateBulkAuxBar()" style="width:16px;height:16px;cursor:pointer;flex-shrink:0"/>'
+    var isChecked = _auxSelectedIds[String(a.id)] ? ' checked' : '';
+    div.innerHTML='<input type="checkbox" class="aux-cb" data-agent-id="'+a.id+'"'+isChecked+' onchange="onAuxCheckboxChange(this)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0"/>'
       +'<div class="avatar" style="width:30px;height:30px;font-size:11px;flex-shrink:0">'+initials(a.name)+'</div>'
       +'<span style="flex:1;font-size:13px;font-weight:600">'+a.name+'</span>'
       +'<span class="badge '+statusBadgeClass(a.status)+'" style="min-width:95px;text-align:center">'+a.status+'</span>'
@@ -2380,9 +2685,22 @@ function renderAdminAux(){
       +optHtml+'</select>';
     c.appendChild(div);
   });
-  // Reset select-all checkbox
+  // Sync select-all checkbox to whether all are selected
   var sa=document.getElementById('aux-select-all');
-  if(sa) sa.checked=false;
+  var allCbs=document.querySelectorAll('.aux-cb');
+  if(sa) sa.checked = allCbs.length>0 && document.querySelectorAll('.aux-cb:checked').length===allCbs.length;
+  updateBulkAuxBar();
+}
+
+// Track individual checkbox changes into the persistent set
+function onAuxCheckboxChange(cb){
+  var id=String(cb.getAttribute('data-agent-id'));
+  if(cb.checked) _auxSelectedIds[id]=true;
+  else delete _auxSelectedIds[id];
+  // Update select-all state
+  var sa=document.getElementById('aux-select-all');
+  var allCbs=document.querySelectorAll('.aux-cb');
+  if(sa) sa.checked = allCbs.length>0 && document.querySelectorAll('.aux-cb:checked').length===allCbs.length;
   updateBulkAuxBar();
 }
 
@@ -2399,11 +2717,17 @@ function updateBulkAuxBar(){
 }
 
 function toggleAllAuxCheckboxes(checked){
-  document.querySelectorAll('.aux-cb').forEach(function(cb){cb.checked=checked;});
+  _auxSelectedIds={};
+  document.querySelectorAll('.aux-cb').forEach(function(cb){
+    cb.checked=checked;
+    var id=String(cb.getAttribute('data-agent-id'));
+    if(checked) _auxSelectedIds[id]=true;
+  });
   updateBulkAuxBar();
 }
 
 function clearBulkAuxSelection(){
+  _auxSelectedIds={};
   document.querySelectorAll('.aux-cb').forEach(function(cb){cb.checked=false;});
   var sa=document.getElementById('aux-select-all');
   if(sa) sa.checked=false;
@@ -2413,10 +2737,7 @@ function clearBulkAuxSelection(){
 function applyBulkAux(){
   var status=document.getElementById('bulk-aux-status').value;
   if(!status){toast('Select a status first','warning');return;}
-  var ids=[];
-  document.querySelectorAll('.aux-cb:checked').forEach(function(cb){
-    ids.push(cb.getAttribute('data-agent-id'));
-  });
+  var ids=Object.keys(_auxSelectedIds);
   if(!ids.length){toast('No agents selected','warning');return;}
 
   toast('Applying '+status+' to '+ids.length+' agents…');
@@ -2424,6 +2745,7 @@ function applyBulkAux(){
   google.script.run
     .withSuccessHandler(function(data){
       allAgents=data;
+      _auxSelectedIds={}; // clear selection after successful apply
       renderAdminQueue();renderAdminAux();updateStats();checkBreaches();setRefreshed('admin');
       toast('Done — '+ids.length+' agents updated to '+status,'success');
       document.getElementById('bulk-aux-status').value='';
@@ -2619,9 +2941,9 @@ function adminReceiveCall(id){
 }
 function adminEndCall(id){
   google.script.run
-    .withSuccessHandler(function(data){allAgents=data;renderAdminQueue();updateStats();checkBreaches();toast('Call ended — agent back in queue','success');setRefreshed('admin');})
+    .withSuccessHandler(function(data){allAgents=data;renderAdminQueue();updateStats();checkBreaches();toast('Call ended — agent now in ACW','success');setRefreshed('admin');})
     .withFailureHandler(function(){toast('Failed','error');})
-    .markCallEnded(id,'admin');
+    .markCallEnded(id,'admin', false);
 }
 
 // ── Agent accounts ───────────────────────────────────────────────────────────
