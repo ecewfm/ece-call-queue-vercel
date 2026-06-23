@@ -194,18 +194,87 @@ async function markCallReceived(agentId, callerRole) {
   return await getAllAgents();
 }
 
-async function markCallEnded(agentId, callerRole) {
+async function markCallEnded(agentId, callerRole, callerDropped) {
   const rowNum = await getAgentRowIndex(agentId);
   if (!rowNum) return await getAllAgents();
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const callStart = agentRow[7];
   const now = nowDate();
   const durSec = callStart ? Math.round((now - new Date(callStart)) / 1000) : 0;
-  await writeRange(`Agents!F${rowNum}:H${rowNum}`, [['Available', now.toISOString(), '']]);
+  // Move to ACW (After Call Work) instead of straight to Available.
+  // Store call duration in callStart column temporarily? No — clear H, set J to ACW start.
+  await writeRange(`Agents!F${rowNum}:H${rowNum}`, [['ACW', '', '']]);
   await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
-  await logEvent(agentId, agentRow[1], 'Call Ended', 'On Call', 'Available', now, durSec, callerRole === 'admin' ? 'Ended by admin' : '');
+  const evt = callerDropped ? 'Caller Dropped' : 'Call Ended';
+  const note = callerDropped ? '📵 Caller dropped — entering ACW' : (callerRole === 'admin' ? 'Ended by admin — ACW' : 'Entering ACW');
+  await logEvent(agentId, agentRow[1], evt, 'On Call', 'ACW', now, durSec, note);
   await recalculateQueue();
   return await getAllAgents();
+}
+
+// Called when agent finishes ACW (manually or auto via timer)
+async function finishACW(agentId, expired) {
+  const rowNum = await getAgentRowIndex(agentId);
+  if (!rowNum) return await getAllAgents();
+  const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
+  if (agentRow[5] !== 'ACW') return await getAllAgents(); // not in ACW, ignore
+  const now = nowDate();
+  const acwStart = agentRow[9];
+  const acwSec = acwStart ? Math.round((now - new Date(acwStart)) / 1000) : 0;
+  await writeRange(`Agents!F${rowNum}:G${rowNum}`, [['Available', now.toISOString()]]);
+  await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
+  const note = expired ? `⚑ ACW expired after ${acwSec}s — auto-returned (no disposition)` : `ACW complete (${acwSec}s)`;
+  await logEvent(agentId, agentRow[1], 'ACW Complete', 'ACW', 'Available', now, acwSec, note);
+  await recalculateQueue();
+  return await getAllAgents();
+}
+
+// Save a disposition record (to Dispositions sheet + log reference)
+async function saveDisposition(d) {
+  await ensureDispositionsSheet();
+  const now = nowDate();
+  await appendRow('Dispositions', [
+    now.toISOString(),
+    d.agentId || '',
+    d.agentName || '',
+    d.customerNumber || '',
+    d.customerName || '',
+    d.category || '',
+    d.subcategory || '',
+    d.notes || '',
+    d.callDurationSec || 0
+  ]);
+  // Reference note in the logs
+  await logEvent(d.agentId, d.agentName, 'Disposition', '', '', now, d.callDurationSec || 0,
+    `${d.category || '—'} › ${d.subcategory || '—'}${d.customerNumber ? ' | #'+d.customerNumber : ''}`);
+  return { success: true };
+}
+
+async function ensureDispositionsSheet() {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  const exists = meta.data.sheets.some(s => s.properties.title === 'Dispositions');
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: 'Dispositions' } } }] }
+    });
+    await writeRange('Dispositions!A1:I1', [[
+      'Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec'
+    ]]);
+  }
+}
+
+async function getDispositions(limit) {
+  await ensureDispositionsSheet();
+  const rows = await readRange('Dispositions!A2:I');
+  const list = rows.filter(r => r[0]).map(r => ({
+    timestamp: r[0], agentId: r[1], agentName: r[2],
+    customerNumber: r[3], customerName: r[4],
+    category: r[5], subcategory: r[6], notes: r[7], callDurationSec: r[8]
+  }));
+  list.reverse();
+  return limit ? list.slice(0, limit) : list;
 }
 
 async function logCallAvoidance(agentId, note) {
@@ -382,7 +451,16 @@ async function ensureSettingsSheet() {
 async function getGlobalSettings() {
   await ensureSettingsSheet();
   const rows = await readRange('Settings!A2:B');
-  const settings = { showAircall: true }; // defaults
+  const settings = {
+    showAircall: true,
+    acwThresholdSec: 180,  // 3 minutes default
+    dispositionCategories: JSON.stringify([
+      { category: 'Sales',          subcategories: ['New order','Upsell','Quote request'] },
+      { category: 'Support',        subcategories: ['Technical issue','Billing question','Account update'] },
+      { category: 'Complaint',      subcategories: ['Service delay','Product defect','Staff conduct'] },
+      { category: 'General Inquiry', subcategories: ['Hours/location','Product info','Other'] }
+    ])
+  };
   rows.forEach(r => {
     if (!r[0]) return;
     let v = r[1];
@@ -551,7 +629,10 @@ export default async function handler(req, res) {
       case 'resetPasswordWithSecurity': data = await resetPasswordWithSecurity(params.username, params.securityAnswer, params.newPassword); break;
       case 'setMyStatus':               data = await setMyStatus(params.agentId, params.newStatus, params.callerRole); break;
       case 'markCallReceived':          data = await markCallReceived(params.agentId, params.callerRole); break;
-      case 'markCallEnded':             data = await markCallEnded(params.agentId, params.callerRole); break;
+      case 'markCallEnded':             data = await markCallEnded(params.agentId, params.callerRole, params.callerDropped); break;
+      case 'finishACW':                 data = await finishACW(params.agentId, params.expired); break;
+      case 'saveDisposition':           data = await saveDisposition(params.disposition || params); break;
+      case 'getDispositions':           data = await getDispositions(params.limit); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
       case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
