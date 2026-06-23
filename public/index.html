@@ -3223,20 +3223,28 @@ function populateDispositionFilters(){
 }
 
 function applyDispositionFilter(){
-  var from = document.getElementById('disp-rpt-from').value;
-  var to   = document.getElementById('disp-rpt-to').value;
+  var from = document.getElementById('disp-rpt-from').value;  // 'YYYY-MM-DD'
+  var to   = document.getElementById('disp-rpt-to').value;    // 'YYYY-MM-DD'
   var cat  = document.getElementById('disp-rpt-category').value;
   var agent= document.getElementById('disp-rpt-agent').value;
 
-  var fromTs = from ? new Date(from+'T00:00:00').getTime() : null;
-  var toTs   = to   ? new Date(to+'T23:59:59').getTime()   : null;
+  // Compare by local calendar date (YYYY-MM-DD) to avoid UTC/local drift.
+  // The stored timestamp is UTC ISO; we convert it to the viewer's local date.
+  function localDateStr(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return '';
+    var p = function(n){ return (n<10?'0':'')+n; };
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  }
 
   _filteredDispositions = _allDispositions.filter(function(d){
-    var t = d.timestamp ? new Date(d.timestamp).getTime() : 0;
-    if(fromTs && t < fromTs) return false;
-    if(toTs && t > toTs) return false;
-    if(cat && d.category !== cat) return false;
-    if(agent && d.agentName !== agent) return false;
+    var ds = localDateStr(d.timestamp);   // 'YYYY-MM-DD' in local time
+    if(from && ds && ds < from) return false;
+    if(to   && ds && ds > to)   return false;
+    if(from && !ds) return false;          // no date but a from-filter set
+    if(cat && String(d.category||'').trim() !== String(cat).trim()) return false;
+    if(agent && String(d.agentName||'').trim() !== String(agent).trim()) return false;
     return true;
   });
   renderDispositionTable();
