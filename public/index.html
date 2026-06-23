@@ -3197,29 +3197,34 @@ function loadDispositions(){
 }
 
 function populateDispositionFilters(){
-  // Categories from global settings + any seen in data
+  // Build dropdowns ONLY from values actually present in the data,
+  // so every selectable option is guaranteed to match real records.
   var catSel = document.getElementById('disp-rpt-category');
   var prevCat = catSel.value;
   var cats = {};
-  getDispositionCategories().forEach(function(c){ if(c.category) cats[c.category]=true; });
-  _allDispositions.forEach(function(d){ if(d.category) cats[d.category]=true; });
+  _allDispositions.forEach(function(d){
+    var c = String(d.category||'').trim();
+    if(c) cats[c]=true;
+  });
   catSel.innerHTML = '<option value="">All categories</option>';
   Object.keys(cats).sort().forEach(function(c){
     var o=document.createElement('option'); o.value=c; o.textContent=c; catSel.appendChild(o);
   });
-  if(prevCat) catSel.value = prevCat;
+  // Restore previous selection only if it still exists as an option
+  if(prevCat && cats[prevCat]) catSel.value = prevCat;
 
-  // Agents from data + the agent roster
   var agSel = document.getElementById('disp-rpt-agent');
   var prevAg = agSel.value;
   var agents = {};
-  (allAgents||[]).forEach(function(a){ if(a.role==='agent' && a.name) agents[a.name]=true; });
-  _allDispositions.forEach(function(d){ if(d.agentName) agents[d.agentName]=true; });
+  _allDispositions.forEach(function(d){
+    var n = String(d.agentName||'').trim();
+    if(n) agents[n]=true;
+  });
   agSel.innerHTML = '<option value="">All agents</option>';
   Object.keys(agents).sort().forEach(function(n){
     var o=document.createElement('option'); o.value=n; o.textContent=n; agSel.appendChild(o);
   });
-  if(prevAg) agSel.value = prevAg;
+  if(prevAg && agents[prevAg]) agSel.value = prevAg;
 }
 
 function applyDispositionFilter(){
@@ -3243,8 +3248,8 @@ function applyDispositionFilter(){
     if(from && ds && ds < from) return false;
     if(to   && ds && ds > to)   return false;
     if(from && !ds) return false;          // no date but a from-filter set
-    if(cat && String(d.category||'').trim() !== String(cat).trim()) return false;
-    if(agent && String(d.agentName||'').trim() !== String(agent).trim()) return false;
+    if(cat && String(d.category||'').trim().toLowerCase() !== String(cat).trim().toLowerCase()) return false;
+    if(agent && String(d.agentName||'').trim().toLowerCase() !== String(agent).trim().toLowerCase()) return false;
     return true;
   });
   renderDispositionTable();
