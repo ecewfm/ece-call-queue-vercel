@@ -3193,7 +3193,7 @@ function loadDispositions(){
     .withFailureHandler(function(e){
       tbl.innerHTML = '<div style="padding:16px;color:#dc2626;font-size:12px">Failed to load dispositions: '+(e&&e.message?e.message:'error')+'</div>';
     })
-    .getDispositions(0); // 0 = all
+    .getDispositions(); // no limit = all records
 }
 
 function populateDispositionFilters(){
