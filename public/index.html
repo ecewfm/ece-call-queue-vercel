@@ -262,7 +262,9 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     <button class="cal-btn-receive" onclick="alertReceiveCall()">
       📞 Call received
     </button>
-    <br/>
+    <button onclick="alertCallerDropped()" style="width:100%;padding:11px;background:#f59e0b;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">
+      📵 Caller dropped
+    </button>
     <button class="cal-dismiss-link" onclick="showDismissForm()">Dismiss</button>
 
     <!-- Countdown — shown only in last 10 seconds before auto-skip -->
@@ -283,55 +285,6 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
   </div>
 </div>
 
-<!-- ══ ACW (AFTER CALL WORK) OVERLAY ═════════════════════════════════════ -->
-<div id="acw-modal" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:99998">
-  <div style="background:#fff;border-radius:14px;padding:28px;max-width:560px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      <span style="font-size:24px">📝</span>
-      <h2 style="margin:0;font-size:20px;color:#0e7490">After Call Work — Disposition</h2>
-    </div>
-    <p style="font-size:13px;color:#6b7280;margin:0 0 8px">Complete this form to log the call. You'll return to Available once submitted.</p>
-
-    <!-- ACW countdown -->
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#cffafe;border-radius:8px;margin-bottom:16px">
-      <span style="font-size:12px;font-weight:700;color:#0e7490">⏱️ ACW time remaining:</span>
-      <span id="acw-countdown" style="font-size:16px;font-weight:800;color:#0e7490;font-variant-numeric:tabular-nums">3:00</span>
-      <span style="font-size:11px;color:#0891b2;margin-left:auto" id="acw-expiry-note"></span>
-    </div>
-
-    <!-- Disposition form -->
-    <div class="m-form-row">
-      <label>Customer number</label>
-      <input type="text" id="disp-custnum" placeholder="e.g. +1 555 123 4567" maxlength="40"/>
-    </div>
-    <div class="m-form-row">
-      <label>Customer name</label>
-      <input type="text" id="disp-custname" placeholder="e.g. John Smith" maxlength="80"/>
-    </div>
-    <div class="m-form-row">
-      <label>Disposition category <span style="color:#dc2626">*</span></label>
-      <select id="disp-category" onchange="onDispCategoryChange()">
-        <option value="">— Select a category —</option>
-      </select>
-    </div>
-    <div class="m-form-row">
-      <label>Subcategory <span style="color:#dc2626">*</span></label>
-      <select id="disp-subcategory">
-        <option value="">— Select a category first —</option>
-      </select>
-    </div>
-    <div class="m-form-row">
-      <label>Notes</label>
-      <textarea id="disp-notes" rows="3" placeholder="Optional notes about the call…" maxlength="500"></textarea>
-    </div>
-    <div class="m-err" id="disp-err"></div>
-
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="m-btn m-btn-green" id="disp-submit-btn" onclick="submitDisposition()" style="flex:1">✔ Submit & Return to Available</button>
-    </div>
-    <p style="font-size:11px;color:#94a3b8;text-align:center;margin:10px 0 0">If the ACW timer expires before you submit, you'll be returned to Available automatically and the call will be flagged for follow-up.</p>
-  </div>
-</div>
 <div id="first-time-modal" class="modal-overlay" role="dialog" aria-modal="true">
   <div class="modal-box">
     <div class="modal-title">🔐 Welcome! Set up your account</div>
@@ -583,6 +536,21 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       <!-- LEFT: compact queue panel -->
       <div class="agent-left" id="ag-left-panel">
 
+        <!-- PINNED on-call control bar — only visible while On Call or ACW -->
+        <div id="ag-oncall-pinned" class="alp-section" style="display:none;background:#fef2f2;border-bottom:2px solid #fca5a5">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:18px">📞</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:#991b1b" id="ag-pinned-label">On Call</div>
+              <div style="font-size:11px;color:#b91c1c"><span id="ag-pinned-timer" class="call-timer" data-start="0" data-status="On Call">00:00</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px" id="ag-pinned-buttons">
+            <button class="btn btn-blue btn-sm" style="flex:1" onclick="agentEndCall(false)">✔ Call ended</button>
+            <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff" onclick="agentEndCall(true)">📵 Caller dropped</button>
+          </div>
+        </div>
+
         <div class="alp-section">
           <div class="alp-label">My status</div>
           <select id="ag-aux-sel" onchange="agentChangeAux(this.value)" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1a1a1a;outline:none"></select>
@@ -632,6 +600,53 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
               <p id="crm-overlay-title" style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px">Waiting for your turn</p>
               <p id="crm-overlay-sub" style="font-size:12px;color:#6b7280;line-height:1.5">Aircall unlocks when you reach position #1 in the queue.</p>
             </div>
+          </div>
+        </div>
+
+        <!-- DISPOSITION PANEL — appears below Aircall during/after a call -->
+        <div id="ag-disp-panel" style="display:none;flex-shrink:0;background:#fff;border-top:2px solid #06b6d4;max-height:48%;overflow-y:auto">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#cffafe;position:sticky;top:0;z-index:2">
+            <span style="font-size:16px">📝</span>
+            <span style="font-size:13px;font-weight:700;color:#0e7490;flex:1">Call Disposition</span>
+            <span id="ag-disp-acw-wrap" style="display:none;align-items:center;gap:6px">
+              <span style="font-size:11px;font-weight:600;color:#0e7490">ACW:</span>
+              <span id="ag-disp-acw-countdown" style="font-size:14px;font-weight:800;color:#0e7490;font-variant-numeric:tabular-nums">3:00</span>
+            </span>
+            <span id="ag-disp-status-hint" style="font-size:11px;color:#0891b2">Fillable during the call</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Customer number</label>
+                <input type="text" id="disp-custnum" placeholder="+1 555 123 4567" maxlength="40" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Customer name</label>
+                <input type="text" id="disp-custname" placeholder="John Smith" maxlength="80" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Category <span style="color:#dc2626">*</span></label>
+                <select id="disp-category" onchange="onDispCategoryChange()" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff">
+                  <option value="">— Select —</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Subcategory <span style="color:#dc2626">*</span></label>
+                <select id="disp-subcategory" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff">
+                  <option value="">— Select category first —</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:10px">
+              <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Notes</label>
+              <textarea id="disp-notes" rows="2" placeholder="Optional notes about the call…" maxlength="500" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;resize:vertical"></textarea>
+            </div>
+            <div class="m-err" id="disp-err" style="display:none;margin-top:8px"></div>
+            <button class="btn btn-sm" id="disp-submit-btn" onclick="submitDisposition()" disabled
+              style="width:100%;margin-top:10px;background:#06b6d4;color:#fff;opacity:.5;cursor:not-allowed">
+              ✔ Submit & Return to Available
+            </button>
+            <p id="disp-submit-hint" style="font-size:10px;color:#94a3b8;text-align:center;margin:6px 0 0">You can fill this during the call. Submit becomes available after the call ends.</p>
           </div>
         </div>
 
@@ -1785,9 +1800,34 @@ function renderAgentView(){
   currentUser.status=me.status;
   var q=getQueue(),oc=getOnCall();
 
-  // If agent is in ACW but the disposition modal is not open (e.g. page refreshed), reopen it
-  if(me.status==='ACW' && document.getElementById('acw-modal').style.display!=='flex'){
-    openACWDisposition();
+  // ── Pinned on-call control bar (top of left panel) ──
+  var pinned = document.getElementById('ag-oncall-pinned');
+  if(me.status==='On Call'){
+    pinned.style.display='block';
+    document.getElementById('ag-pinned-label').textContent='On Call';
+    var pt=document.getElementById('ag-pinned-timer');
+    pt.setAttribute('data-start', me.callStart?new Date(me.callStart).getTime():Date.now());
+    pt.setAttribute('data-status','On Call');
+    document.getElementById('ag-pinned-buttons').style.display='flex';
+    // Ensure disposition panel is showing + fillable during call
+    var dp=document.getElementById('ag-disp-panel');
+    if(dp && dp.style.display!=='block'){ showDispositionPanel(true); }
+  } else if(me.status==='ACW'){
+    pinned.style.display='block';
+    document.getElementById('ag-pinned-label').textContent='After Call Work';
+    var pt2=document.getElementById('ag-pinned-timer');
+    pt2.setAttribute('data-start', me.auxStart?new Date(me.auxStart).getTime():Date.now());
+    pt2.setAttribute('data-status','ACW');
+    // In ACW, hide the call-ended buttons (call already ended) — disposition is the action
+    document.getElementById('ag-pinned-buttons').style.display='none';
+    // Recover disposition panel if it got closed (e.g. page refresh during ACW)
+    var dp2=document.getElementById('ag-disp-panel');
+    if(dp2 && dp2.style.display!=='block'){ enterACWMode(); }
+  } else {
+    pinned.style.display='none';
+    // Not on a call and not in ACW — make sure disposition panel is hidden
+    var dp3=document.getElementById('ag-disp-panel');
+    if(dp3 && dp3.style.display==='block' && !_acwTimer){ hideDispositionPanel(); }
   }
 
   var badge=document.getElementById('ag-status-badge');
@@ -1808,10 +1848,8 @@ function renderAgentView(){
     div.className='q-row'+(isTop?' top-slot':'')+(isMe?' my-slot':'');
     var actionHtml='';
     if(isMe && isTop){
-      // Agent is at the top — show the Call received button
       actionHtml='<button class="btn btn-danger btn-sm" onclick="agentReceiveCall()">📞 Call received</button>';
     } else if(isMe && !isTop){
-      // Agent is in queue but not at top — show position indicator
       actionHtml='<span style="font-size:11px;color:#6b7280;background:#f1f5f9;padding:2px 8px;border-radius:99px;white-space:nowrap">⏳ Position #'+(i+1)+'</span>';
     }
     div.innerHTML='<span class="q-rank">'+(i+1)+'</span>'
@@ -1822,6 +1860,7 @@ function renderAgentView(){
     ql.appendChild(div);
   });
 
+  // On-call list (other agents on call shown for awareness; my own controls are pinned at top)
   var oca=document.getElementById('ag-oncall-area');oca.innerHTML='';
   oc.forEach(function(a){
     var isMe=(String(a.id)===String(currentUser.id));
@@ -1830,15 +1869,12 @@ function renderAgentView(){
     div.innerHTML='<span class="q-rank">📞</span>'
       +'<span class="q-name">'+a.name+(isMe?'<span class="you-tag">you</span>':'')+'</span>'
       +'<span class="call-timer" data-start="'+st+'" data-status="On Call">'+fmtSecs((Date.now()-st)/1000)+'</span>'
-      +'<span class="badge b-oncall">On call</span>'
-      +(isMe?'<button class="btn btn-blue btn-sm" onclick="agentEndCall(false)">✔ Call ended</button>'
-            +'<button class="btn btn-sm" style="background:#f59e0b;color:#fff" onclick="agentEndCall(true)">📵 Caller dropped</button>':'');
+      +'<span class="badge b-oncall">On call</span>';
     oca.appendChild(div);
   });
 
   updateCrmLock();
   checkCallAlert();
-  // If Live queue tab is currently active, also re-render it
   var lqTab = document.getElementById('ag-tab-livequeue');
   if(lqTab && lqTab.style.display !== 'none') renderAgentLiveQueue();
 }
@@ -1897,41 +1933,82 @@ function agentEndCall(callerDropped){
 
   google.script.run
     .withSuccessHandler(function(data){
-      allAgents=data; renderAgentView();
-      currentUser.status='ACW';
+      allAgents=data; currentUser.status='ACW';
+      renderAgentView();
       setRefreshed('agent');
-      openACWDisposition();
+      enterACWMode();
     })
     .withFailureHandler(function(){toast('Failed to end call','error');})
     .markCallEnded(currentUser.id,'agent', !!callerDropped);
 }
 
-// ── ACW + Disposition flow ────────────────────────────────────────────────────
-function openACWDisposition(){
-  // Populate categories from globalSettings
+// ── Disposition panel (lives in the right panel, below Aircall) ───────────────
+// Show the disposition form and make it fillable (called when Call received clicked)
+function showDispositionPanel(fillableDuringCall){
+  var panel = document.getElementById('ag-disp-panel');
+  if(!panel) return;
   populateDispositionCategories();
-  // Reset form
+  panel.style.display = 'block';
+  // During an active call: form is fillable but Submit is disabled
+  if(fillableDuringCall){
+    document.getElementById('ag-disp-acw-wrap').style.display='none';
+    document.getElementById('ag-disp-status-hint').style.display='';
+    setDispSubmitEnabled(false);
+  }
+}
+
+// Reset/clear the disposition form fields
+function resetDispositionForm(){
   document.getElementById('disp-custnum').value='';
   document.getElementById('disp-custname').value='';
   document.getElementById('disp-category').value='';
-  document.getElementById('disp-subcategory').innerHTML='<option value="">— Select a category first —</option>';
+  document.getElementById('disp-subcategory').innerHTML='<option value="">— Select category first —</option>';
   document.getElementById('disp-notes').value='';
   document.getElementById('disp-err').style.display='none';
-  document.getElementById('acw-expiry-note').textContent='';
-  document.getElementById('disp-submit-btn').disabled=false;
-  document.getElementById('acw-modal').style.display='flex';
+}
+
+// Hide + clear the disposition panel (after submit or auto-return)
+function hideDispositionPanel(){
+  var panel = document.getElementById('ag-disp-panel');
+  if(panel) panel.style.display='none';
+  resetDispositionForm();
+  if(_acwTimer){clearTimeout(_acwTimer);_acwTimer=null;}
+  if(_acwCountdownInterval){clearInterval(_acwCountdownInterval);_acwCountdownInterval=null;}
+}
+
+// Enter ACW mode — call has ended, now Submit is enabled + ACW timer runs
+function enterACWMode(){
+  var panel = document.getElementById('ag-disp-panel');
+  if(panel) panel.style.display='block';
+  populateDispositionCategories(); // keep options; preserves any selection? re-populate is fine
+  document.getElementById('ag-disp-acw-wrap').style.display='inline-flex';
+  document.getElementById('ag-disp-status-hint').style.display='none';
+  setDispSubmitEnabled(true);
   startACWTimer();
+}
+
+function setDispSubmitEnabled(enabled){
+  var btn = document.getElementById('disp-submit-btn');
+  var hint = document.getElementById('disp-submit-hint');
+  if(!btn) return;
+  btn.disabled = !enabled;
+  btn.style.opacity = enabled ? '1' : '.5';
+  btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  if(hint) hint.style.display = enabled ? 'none' : 'block';
 }
 
 function populateDispositionCategories(){
   var sel = document.getElementById('disp-category');
-  sel.innerHTML='<option value="">— Select a category —</option>';
+  if(!sel) return;
+  var prev = sel.value;
+  sel.innerHTML='<option value="">— Select —</option>';
   var cats = getDispositionCategories();
   cats.forEach(function(c){
     var opt=document.createElement('option');
     opt.value=c.category; opt.textContent=c.category;
     sel.appendChild(opt);
   });
+  if(prev){ sel.value = prev; onDispCategoryChange(); }
 }
 
 function getDispositionCategories(){
@@ -1945,7 +2022,7 @@ function onDispCategoryChange(){
   var cat = document.getElementById('disp-category').value;
   var subSel = document.getElementById('disp-subcategory');
   subSel.innerHTML='<option value="">— Select a subcategory —</option>';
-  if(!cat){ subSel.innerHTML='<option value="">— Select a category first —</option>'; return; }
+  if(!cat){ subSel.innerHTML='<option value="">— Select category first —</option>'; return; }
   var cats = getDispositionCategories();
   var found = cats.find(function(c){return c.category===cat;});
   if(found && found.subcategories){
@@ -1967,7 +2044,7 @@ function startACWTimer(){
     var elapsed = Math.floor((Date.now()-startedAt)/1000);
     var remaining = Math.max(0, totalSec - elapsed);
     var m=Math.floor(remaining/60), s=remaining%60;
-    var el=document.getElementById('acw-countdown');
+    var el=document.getElementById('ag-disp-acw-countdown');
     if(el){
       el.textContent = m+':'+(s<10?'0':'')+s;
       el.style.color = remaining<=30 ? '#dc2626' : '#0e7490';
@@ -1980,13 +2057,12 @@ function startACWTimer(){
   _acwCountdownInterval = setInterval(tick, 500);
 
   _acwTimer = setTimeout(function(){
-    // ACW expired — auto-return to Available (flagged, no disposition if not submitted)
     handleACWExpired();
   }, totalSec*1000);
 }
 
 function handleACWExpired(){
-  closeACWModal();
+  hideDispositionPanel();
   toast('⚑ ACW time expired — returned to Available','error');
   google.script.run
     .withSuccessHandler(function(data){allAgents=data;currentUser.status='Available';renderAgentView();setRefreshed('agent');})
@@ -2014,35 +2090,28 @@ function submitDisposition(){
     callDurationSec: _acwCallDuration
   };
 
-  document.getElementById('disp-submit-btn').disabled=true;
+  setDispSubmitEnabled(false);
 
   google.script.run
     .withSuccessHandler(function(){
-      // Now finish ACW and return to Available
       google.script.run
         .withSuccessHandler(function(data){
           allAgents=data; currentUser.status='Available';
-          closeACWModal();
+          hideDispositionPanel();
           renderAgentView(); setRefreshed('agent');
           toast('Disposition saved — back in queue','success');
         })
         .withFailureHandler(function(){
-          closeACWModal();
+          hideDispositionPanel();
           toast('Disposition saved, but failed to return to queue — refresh','error');
         })
         .finishACW(currentUser.id, false);
     })
     .withFailureHandler(function(e){
-      document.getElementById('disp-submit-btn').disabled=false;
+      setDispSubmitEnabled(true);
       errEl.textContent='Failed to save: '+(e&&e.message?e.message:'try again'); errEl.style.display='block';
     })
     .saveDisposition(disp);
-}
-
-function closeACWModal(){
-  document.getElementById('acw-modal').style.display='none';
-  if(_acwTimer){clearTimeout(_acwTimer);_acwTimer=null;}
-  if(_acwCountdownInterval){clearInterval(_acwCountdownInterval);_acwCountdownInterval=null;}
 }
 
 // ── Call alert state ────────────────────────────────────────────────────────
@@ -2166,13 +2235,38 @@ function hideCallAlert() {
 // ── Modal action: agent receives call ────────────────────────────────────────
 function alertReceiveCall() {
   hideCallAlert();
-  // Reuse existing agentReceiveCall logic
   google.script.run
     .withSuccessHandler(function(data){
-      allAgents=data; renderAgentView();
+      allAgents=data; currentUser.status='On Call'; renderAgentView();
       toast('You are now On Call','success'); setRefreshed('agent');
+      // Show disposition panel — fillable DURING the call (submit disabled until call ends)
+      resetDispositionForm();
+      showDispositionPanel(true);
     })
     .withFailureHandler(function(){ toast('Failed to receive call','error'); })
+    .markCallReceived(currentUser.id,'agent');
+}
+
+// ── Modal action: caller dropped before answer ───────────────────────────────
+function alertCallerDropped() {
+  hideCallAlert();
+  _wasAtTop = false;
+  _acwCallDuration = 0;
+  // Receive then immediately end as caller-dropped, so it flows into ACW + disposition
+  google.script.run
+    .withSuccessHandler(function(){
+      google.script.run
+        .withSuccessHandler(function(data){
+          allAgents=data; currentUser.status='ACW'; renderAgentView();
+          setRefreshed('agent');
+          resetDispositionForm();
+          enterACWMode();
+          toast('Caller dropped before answer — please log disposition','warning');
+        })
+        .withFailureHandler(function(){ toast('Failed — refresh','error'); })
+        .markCallEnded(currentUser.id,'agent', true);
+    })
+    .withFailureHandler(function(){ toast('Failed to process','error'); })
     .markCallReceived(currentUser.id,'agent');
 }
 
