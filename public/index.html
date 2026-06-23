@@ -2372,8 +2372,8 @@ function confirmDismiss() {
 
   google.script.run
     .withSuccessHandler(function(data){
-      allAgents=data; renderAgentView();
-      toast('Dismissed — moved to bottom of queue','warning');
+      allAgents=data; currentUser.status='Not Available'; renderAgentView();
+      toast('Call dismissed — your status is now Not Available','warning');
       setRefreshed('agent');
     })
     .withFailureHandler(function(){ toast('Failed to log dismissal','error'); })
