@@ -132,6 +132,9 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
 .hm-4{background:#065f46;color:#fff}
 .report-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem}
 .report-agent-row{display:grid;grid-template-columns:1fr 58px 58px 88px 82px 78px 78px;gap:7px;align-items:center;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px}
+.disp-rpt-row{display:grid;grid-template-columns:140px 120px 110px 110px 110px 120px 1fr 70px;gap:8px;align-items:start;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;min-width:900px}
+.disp-rpt-head{font-weight:700;color:#fff;background:#1d2b23;border-radius:6px;border-bottom:none;position:sticky;top:0}
+.disp-rpt-row span{overflow:hidden;text-overflow:ellipsis;word-break:break-word}
 .report-agent-row:last-child{border-bottom:none}
 .report-head{font-weight:700;color:#6b7280;font-size:11px;text-transform:uppercase;background:#f8fafc;border-radius:7px;margin-bottom:4px}
 .export-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -710,6 +713,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       <button class="nav-tab" onclick="adminTab(this,'tab-aux')">🎛️ AUX override</button>
       <button class="nav-tab" onclick="adminTab(this,'tab-logs')">📋 Logs</button>
       <button class="nav-tab" onclick="adminTab(this,'tab-reports')">📊 Reports</button>
+      <button class="nav-tab" onclick="adminTab(this,'tab-dispositions')">🗂️ Dispositions</button>
       <button class="nav-tab" onclick="adminTab(this,'tab-settings')">⚙️ Settings</button>
       <button class="nav-tab" onclick="adminTab(this,'tab-accounts')">👥 Accounts</button>
     </div>
@@ -846,6 +850,53 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <span><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#065f46;vertical-align:middle"></span> 10+</span>
           </div>
           <div class="heatmap-wrap" id="rpt-heatmap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Dispositions -->
+    <div id="tab-dispositions" class="adm-tab" style="display:none">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div class="card-title" style="margin:0;flex:1">🗂️ Call Dispositions</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadDispositions()">↻ Refresh</button>
+          <button class="btn btn-primary btn-sm" onclick="exportDispositionsCSV()">⬇ Download CSV</button>
+        </div>
+
+        <!-- Filters -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px;background:#f8fafc;border-radius:8px">
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">From date</label>
+            <input type="date" id="disp-rpt-from" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">To date</label>
+            <input type="date" id="disp-rpt-to" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Category</label>
+            <select id="disp-rpt-category" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;background:#fff;min-width:150px">
+              <option value="">All categories</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Agent</label>
+            <select id="disp-rpt-agent" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;background:#fff;min-width:170px">
+              <option value="">All agents</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="applyDispositionFilter()">Apply filter</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetDispositionFilter()">Reset</button>
+        </div>
+
+        <div id="disp-rpt-summary" style="font-size:12px;color:#6b7280;margin-bottom:8px"></div>
+
+        <!-- Table -->
+        <div style="overflow-x:auto">
+          <div class="disp-rpt-row disp-rpt-head">
+            <span>Timestamp</span><span>Agent</span><span>Cust. number</span><span>Cust. name</span><span>Category</span><span>Subcategory</span><span>Notes</span><span>Duration</span>
+          </div>
+          <div id="disp-rpt-table"></div>
         </div>
       </div>
     </div>
@@ -3120,6 +3171,139 @@ function adminTab(btn,tabId){
   document.getElementById(tabId).style.display='block';
   // Initialize display settings UI when entering Settings tab
   if(tabId === 'tab-settings') setupDisplaySettingsListeners();
+  // Load dispositions when entering the Dispositions tab
+  if(tabId === 'tab-dispositions') loadDispositions();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DISPOSITIONS REPORT
+// ══════════════════════════════════════════════════════════════════════════════
+var _allDispositions = [];       // raw, newest-first
+var _filteredDispositions = [];  // after filters applied
+
+function loadDispositions(){
+  var tbl = document.getElementById('disp-rpt-table');
+  tbl.innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:12px">Loading dispositions…</div>';
+  google.script.run
+    .withSuccessHandler(function(data){
+      _allDispositions = Array.isArray(data) ? data : [];
+      populateDispositionFilters();
+      applyDispositionFilter();
+    })
+    .withFailureHandler(function(e){
+      tbl.innerHTML = '<div style="padding:16px;color:#dc2626;font-size:12px">Failed to load dispositions: '+(e&&e.message?e.message:'error')+'</div>';
+    })
+    .getDispositions(0); // 0 = all
+}
+
+function populateDispositionFilters(){
+  // Categories from global settings + any seen in data
+  var catSel = document.getElementById('disp-rpt-category');
+  var prevCat = catSel.value;
+  var cats = {};
+  getDispositionCategories().forEach(function(c){ if(c.category) cats[c.category]=true; });
+  _allDispositions.forEach(function(d){ if(d.category) cats[d.category]=true; });
+  catSel.innerHTML = '<option value="">All categories</option>';
+  Object.keys(cats).sort().forEach(function(c){
+    var o=document.createElement('option'); o.value=c; o.textContent=c; catSel.appendChild(o);
+  });
+  if(prevCat) catSel.value = prevCat;
+
+  // Agents from data + the agent roster
+  var agSel = document.getElementById('disp-rpt-agent');
+  var prevAg = agSel.value;
+  var agents = {};
+  (allAgents||[]).forEach(function(a){ if(a.role==='agent' && a.name) agents[a.name]=true; });
+  _allDispositions.forEach(function(d){ if(d.agentName) agents[d.agentName]=true; });
+  agSel.innerHTML = '<option value="">All agents</option>';
+  Object.keys(agents).sort().forEach(function(n){
+    var o=document.createElement('option'); o.value=n; o.textContent=n; agSel.appendChild(o);
+  });
+  if(prevAg) agSel.value = prevAg;
+}
+
+function applyDispositionFilter(){
+  var from = document.getElementById('disp-rpt-from').value;
+  var to   = document.getElementById('disp-rpt-to').value;
+  var cat  = document.getElementById('disp-rpt-category').value;
+  var agent= document.getElementById('disp-rpt-agent').value;
+
+  var fromTs = from ? new Date(from+'T00:00:00').getTime() : null;
+  var toTs   = to   ? new Date(to+'T23:59:59').getTime()   : null;
+
+  _filteredDispositions = _allDispositions.filter(function(d){
+    var t = d.timestamp ? new Date(d.timestamp).getTime() : 0;
+    if(fromTs && t < fromTs) return false;
+    if(toTs && t > toTs) return false;
+    if(cat && d.category !== cat) return false;
+    if(agent && d.agentName !== agent) return false;
+    return true;
+  });
+  renderDispositionTable();
+}
+
+function resetDispositionFilter(){
+  document.getElementById('disp-rpt-from').value='';
+  document.getElementById('disp-rpt-to').value='';
+  document.getElementById('disp-rpt-category').value='';
+  document.getElementById('disp-rpt-agent').value='';
+  applyDispositionFilter();
+}
+
+function fmtDispTime(iso){
+  if(!iso) return '';
+  var d = new Date(iso);
+  if(isNaN(d)) return iso;
+  var p=function(n){return (n<10?'0':'')+n;};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function fmtDispDur(sec){
+  sec = parseInt(sec)||0;
+  var m=Math.floor(sec/60), s=sec%60;
+  return m+':'+(s<10?'0':'')+s;
+}
+
+function renderDispositionTable(){
+  var tbl = document.getElementById('disp-rpt-table');
+  var summary = document.getElementById('disp-rpt-summary');
+  tbl.innerHTML='';
+  if(!_filteredDispositions.length){
+    tbl.innerHTML='<div style="padding:16px;color:#94a3b8;font-size:12px;text-align:center">No dispositions match the current filters.</div>';
+    summary.textContent='Showing 0 dispositions';
+    return;
+  }
+  var frag=document.createDocumentFragment();
+  _filteredDispositions.forEach(function(d){
+    var div=document.createElement('div');
+    div.className='disp-rpt-row';
+    div.innerHTML =
+        '<span>'+escapeHtml(fmtDispTime(d.timestamp))+'</span>'
+      + '<span style="font-weight:600">'+escapeHtml(d.agentName||'')+'</span>'
+      + '<span>'+escapeHtml(d.customerNumber||'')+'</span>'
+      + '<span>'+escapeHtml(d.customerName||'')+'</span>'
+      + '<span><span class="badge b-meeting" style="font-size:10px">'+escapeHtml(d.category||'—')+'</span></span>'
+      + '<span>'+escapeHtml(d.subcategory||'')+'</span>'
+      + '<span style="color:#6b7280">'+escapeHtml(d.notes||'')+'</span>'
+      + '<span>'+fmtDispDur(d.callDurationSec)+'</span>';
+    frag.appendChild(div);
+  });
+  tbl.appendChild(frag);
+  summary.textContent='Showing '+_filteredDispositions.length+' of '+_allDispositions.length+' dispositions';
+}
+
+function exportDispositionsCSV(){
+  if(!_filteredDispositions.length){ toast('No dispositions to export','warning'); return; }
+  var rows=[['Timestamp','Agent','Customer Number','Customer Name','Category','Subcategory','Notes','Call Duration (sec)']];
+  _filteredDispositions.forEach(function(d){
+    rows.push([
+      fmtDispTime(d.timestamp), d.agentName||'', d.customerNumber||'', d.customerName||'',
+      d.category||'', d.subcategory||'', d.notes||'', parseInt(d.callDurationSec)||0
+    ]);
+  });
+  var from=document.getElementById('disp-rpt-from').value||'all';
+  var to=document.getElementById('disp-rpt-to').value||'all';
+  downloadCSV(rows, 'ECE_Dispositions_'+from+'_to_'+to);
+  toast('Dispositions exported','success');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
