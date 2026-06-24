@@ -560,6 +560,11 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
           <p style="font-size:10px;color:#94a3b8;margin-top:4px">Only you can change your own status</p>
         </div>
 
+        <div class="alp-section" style="border-bottom:1px solid #e2e6ea">
+          <button class="btn btn-sm" onclick="openManualDisposition()" style="width:100%;background:#06b6d4;color:#fff">📝 Add disposition</button>
+          <p style="font-size:10px;color:#94a3b8;margin-top:4px">Log a call disposition manually anytime</p>
+        </div>
+
         <!-- Host for the disposition panel when Aircall is hidden -->
         <div id="ag-disp-host-left" style="flex-shrink:0"></div>
 
@@ -622,6 +627,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
               <span id="ag-disp-acw-countdown" style="font-size:14px;font-weight:800;color:#0e7490;font-variant-numeric:tabular-nums">3:00</span>
             </span>
             <span id="ag-disp-status-hint" style="font-size:11px;color:#0891b2">Fillable during the call</span>
+            <button id="ag-disp-close" onclick="cancelManualDisposition()" title="Close" style="display:none;border:none;background:transparent;font-size:16px;cursor:pointer;color:#0e7490;padding:0 4px">✕</button>
           </div>
           <div style="padding:12px 14px">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -1022,6 +1028,26 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       </div>
 
       <div class="card">
+        <div class="card-title">🏷️ Custom AUX statuses</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Add your own agent-selectable activity statuses (like Break or Lunch). Agents can pick these from their status dropdown. Custom statuses are treated as "away" — the agent is not in the call queue while on one. System statuses (Available, On Call, ACW, Not Available, End of Shift) cannot be changed.</p>
+        <div id="custstatus-list" style="margin-bottom:12px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:10px;background:#f8fafc;border-radius:8px;margin-bottom:10px">
+          <div style="flex:1;min-width:160px">
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Status name</label>
+            <input type="text" id="custstatus-name" placeholder="e.g. Training" maxlength="30" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Color</label>
+            <input type="color" id="custstatus-color" value="#8b5cf6" style="width:48px;height:36px;padding:2px;border:1px solid #d1d5db;border-radius:7px;cursor:pointer"/>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addCustomStatus()">+ Add status</button>
+        </div>
+        <div id="custstatus-err" class="m-err" style="display:none;margin-bottom:8px"></div>
+        <button class="btn btn-primary" onclick="saveCustomStatuses()">💾 Save custom statuses</button>
+        <p style="font-size:10px;color:#94a3b8;margin-top:8px">Changes apply to all agents the next time their view refreshes.</p>
+      </div>
+
+      <div class="card">
         <div class="card-title">🗄️ Archive data (Logs & Dispositions)</div>
         <div style="background:#fffbeb;border-left:3px solid #d97706;padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:14px">
           <span style="font-size:12px;color:#92400e">⏰ <strong>Reminder:</strong> Archive Logs and Dispositions weekly (e.g. each Monday for the previous Mon–Sun) to keep the sheet fast. Pick a date range below, archive to Google Drive, then optionally delete the archived rows.</span>
@@ -1249,6 +1275,18 @@ function statusBadgeClass(s){
   if(s==='Not Available') return 'b-notavail';
   if(s==='End of Shift')  return 'b-eos';
   return 'b-away';
+}
+// Returns an inline style for custom statuses (admin-picked color); '' for built-ins.
+function statusBadgeStyle(s){
+  var col = (typeof customStatusColor==='function') ? customStatusColor(s) : null;
+  if(!col) return '';
+  // Pick readable text color based on background brightness
+  var hex = col.replace('#','');
+  if(hex.length===3) hex = hex.split('').map(function(c){return c+c;}).join('');
+  var r=parseInt(hex.substr(0,2),16)||0, g=parseInt(hex.substr(2,2),16)||0, b=parseInt(hex.substr(4,2),16)||0;
+  var lum = (0.299*r + 0.587*g + 0.114*b)/255;
+  var txt = lum > 0.6 ? '#1a1a1a' : '#ffffff';
+  return 'background:'+col+';color:'+txt+';border-color:'+col+';';
 }
 function fmtSecs(s){
   s=Math.max(0,Math.floor(s||0));
@@ -1606,6 +1644,8 @@ function setupDisplaySettingsListeners(){
   }
   // Load disposition categories editor
   loadDispositionCategoriesEditor();
+  // Load custom AUX status editor
+  loadCustomStatusEditor();
 }
 
 // ── Disposition categories management ─────────────────────────────────────────
@@ -1977,7 +2017,7 @@ function buildAgentRowReadOnly(a, t, idx, total){
     timerHtml = '<span style="color:#94a3b8;font-size:11px">—</span>';
   }
 
-  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px">'+a.status+'</span>';
+  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px;'+statusBadgeStyle(a.status)+'">'+a.status+'</span>';
   // No action button column for agents — empty span to keep grid alignment
   var actionHtml = '<span></span>';
 
@@ -2035,14 +2075,14 @@ function renderAgentView(){
     pinned.style.display='none';
     // Not on a call and not in ACW — make sure disposition panel is hidden
     var dp3=document.getElementById('ag-disp-panel');
-    if(dp3 && dp3.style.display==='block' && !_acwTimer){ hideDispositionPanel(); }
+    if(dp3 && dp3.style.display==='block' && !_acwTimer && !_manualDispositionMode){ hideDispositionPanel(); }
   }
 
   var badge=document.getElementById('ag-status-badge');
-  badge.textContent=me.status;badge.className='badge '+statusBadgeClass(me.status);
+  badge.textContent=me.status;badge.className='badge '+statusBadgeClass(me.status);badge.style.cssText=statusBadgeStyle(me.status);
 
   var sel=document.getElementById('ag-aux-sel');
-  sel.innerHTML=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'].map(function(o){return '<option'+(me.status===o?' selected':'')+'>'+o+'</option>';}).join('');
+  sel.innerHTML=agentSelectableStatuses().map(function(o){return '<option'+(me.status===o?' selected':'')+'>'+o+'</option>';}).join('');
   sel.disabled=(me.status==='On Call'||me.status==='ACW');
 
   document.getElementById('ag-next-tag').textContent=q.length?'Next: '+q[0].name:'Queue empty';
@@ -2181,6 +2221,11 @@ function hideDispositionPanel(){
   var panel = document.getElementById('ag-disp-panel');
   if(panel) panel.style.display='none';
   resetDispositionForm();
+  _manualDispositionMode = false;
+  var hint = document.getElementById('ag-disp-status-hint');
+  if(hint) hint.textContent='Fillable during the call';
+  var closeBtn = document.getElementById('ag-disp-close');
+  if(closeBtn) closeBtn.style.display='none';
   if(_acwTimer){clearTimeout(_acwTimer);_acwTimer=null;}
   if(_acwCountdownInterval){clearInterval(_acwCountdownInterval);_acwCountdownInterval=null;}
 }
@@ -2227,6 +2272,98 @@ function getDispositionCategories(){
   try { return (typeof raw==='string') ? JSON.parse(raw) : raw; }
   catch(e){ return []; }
 }
+
+// ── Custom AUX status editor (admin) ──────────────────────────────────────────
+var _custStatusWorking = null; // working copy while editing
+
+function loadCustomStatusEditor(){
+  _custStatusWorking = getCustomStatuses().slice();
+  renderCustomStatusList();
+}
+function renderCustomStatusList(){
+  var box = document.getElementById('custstatus-list');
+  if(!box) return;
+  if(!_custStatusWorking) _custStatusWorking = getCustomStatuses().slice();
+  if(!_custStatusWorking.length){
+    box.innerHTML = '<p style="font-size:12px;color:#94a3b8">No custom statuses yet. Add one below.</p>';
+    return;
+  }
+  box.innerHTML = '';
+  _custStatusWorking.forEach(function(s, i){
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid #e2e6ea;border-radius:8px;margin-bottom:6px';
+    row.innerHTML =
+        '<span style="display:inline-block;width:18px;height:18px;border-radius:5px;background:'+(s.color||'#64748b')+';flex-shrink:0"></span>'
+      + '<span class="badge" style="'+statusBadgeStyle(s.name)+'font-size:11px">'+escapeHtml(s.name)+'</span>'
+      + '<span style="flex:1"></span>'
+      + '<button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="removeCustomStatus('+i+')">🗑 Remove</button>';
+    box.appendChild(row);
+  });
+}
+function addCustomStatus(){
+  var nameEl = document.getElementById('custstatus-name');
+  var colEl = document.getElementById('custstatus-color');
+  var errEl = document.getElementById('custstatus-err');
+  var name = (nameEl.value||'').trim();
+  errEl.style.display='none';
+  if(!name){ errEl.textContent='Enter a status name.'; errEl.style.display='block'; return; }
+  if(!_custStatusWorking) _custStatusWorking = getCustomStatuses().slice();
+  // Block collisions with system + built-in statuses
+  var reserved = ['available','on call','acw','not available','end of shift','break','lunch','coaching','meeting','outbound call'];
+  if(reserved.indexOf(name.toLowerCase())!==-1){ errEl.textContent='"'+name+'" is a built-in status. Choose a different name.'; errEl.style.display='block'; return; }
+  if(_custStatusWorking.some(function(s){return s.name.toLowerCase()===name.toLowerCase();})){ errEl.textContent='That status already exists.'; errEl.style.display='block'; return; }
+  _custStatusWorking.push({ name: name, color: colEl.value || '#8b5cf6' });
+  nameEl.value=''; colEl.value='#8b5cf6';
+  renderCustomStatusList();
+}
+function removeCustomStatus(i){
+  if(!_custStatusWorking) return;
+  _custStatusWorking.splice(i,1);
+  renderCustomStatusList();
+}
+function saveCustomStatuses(){
+  var list = _custStatusWorking || getCustomStatuses();
+  var json = JSON.stringify(list);
+  google.script.run
+    .withSuccessHandler(function(s){
+      globalSettings = s || globalSettings;
+      globalSettings.customStatuses = json;
+      _custStatusWorking = getCustomStatuses().slice();
+      renderCustomStatusList();
+      toast('Custom statuses saved','success');
+    })
+    .withFailureHandler(function(){ toast('Failed to save custom statuses','error'); })
+    .saveGlobalSettings({ customStatuses: json });
+}
+
+
+// Custom AUX statuses defined by admins: [{name, color}]
+function getCustomStatuses(){
+  var raw = globalSettings.customStatuses;
+  if(!raw) return [];
+  try {
+    var list = (typeof raw==='string') ? JSON.parse(raw) : raw;
+    return Array.isArray(list) ? list.filter(function(s){return s && s.name;}) : [];
+  } catch(e){ return []; }
+}
+
+// The agent-selectable status list = built-in activity statuses + custom ones.
+// (Available is the queue status; On Call/ACW are system-set and excluded.)
+function agentSelectableStatuses(){
+  var base = ['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
+  var custom = getCustomStatuses().map(function(s){return s.name;});
+  // Insert custom statuses before Not Available so they group with activities
+  var out = ['Available','Break','Lunch','Coaching','Meeting','Outbound Call'].concat(custom).concat(['Not Available','End of Shift']);
+  // De-dupe in case a custom name collides with a built-in
+  var seen = {}; return out.filter(function(s){ if(seen[s])return false; seen[s]=true; return true; });
+}
+
+// Look up a custom status color by name (or null if not custom)
+function customStatusColor(name){
+  var found = getCustomStatuses().find(function(s){return s.name===name;});
+  return found ? (found.color||'#64748b') : null;
+}
+
 
 function onDispCategoryChange(){
   var cat = document.getElementById('disp-category').value;
@@ -2297,11 +2434,28 @@ function submitDisposition(){
     category: cat,
     subcategory: sub,
     notes: document.getElementById('disp-notes').value.trim(),
-    callDurationSec: _acwCallDuration
+    callDurationSec: _manualDispositionMode ? 0 : _acwCallDuration
   };
 
   setDispSubmitEnabled(false);
 
+  // Manual disposition: just save it, don't touch the agent's status or queue.
+  if(_manualDispositionMode){
+    google.script.run
+      .withSuccessHandler(function(){
+        _manualDispositionMode = false;
+        hideDispositionPanel();
+        toast('Disposition logged','success');
+      })
+      .withFailureHandler(function(e){
+        setDispSubmitEnabled(true);
+        errEl.textContent='Failed to save: '+(e&&e.message?e.message:'try again'); errEl.style.display='block';
+      })
+      .saveDisposition(disp);
+    return;
+  }
+
+  // Call-flow disposition: save then finish ACW and return to Available.
   google.script.run
     .withSuccessHandler(function(){
       google.script.run
@@ -2322,6 +2476,42 @@ function submitDisposition(){
       errEl.textContent='Failed to save: '+(e&&e.message?e.message:'try again'); errEl.style.display='block';
     })
     .saveDisposition(disp);
+}
+
+// Manual disposition flag — true when the agent opened the form via "Add disposition"
+var _manualDispositionMode = false;
+
+// Open a blank disposition form on demand (backup to the automatic call-flow form).
+function openManualDisposition(){
+  // If a call-flow disposition is already active (On Call / ACW), don't disrupt it.
+  if(currentUser.status === 'On Call' || currentUser.status === 'ACW'){
+    toast('A call disposition is already open','warning');
+    return;
+  }
+  _manualDispositionMode = true;
+  var panel = document.getElementById('ag-disp-panel');
+  if(!panel) return;
+  resetDispositionForm();
+  relocateDispositionPanel();
+  populateDispositionCategories();
+  panel.style.display = 'block';
+  // Manual mode: no ACW timer, submit enabled immediately
+  document.getElementById('ag-disp-acw-wrap').style.display='none';
+  var hint = document.getElementById('ag-disp-status-hint');
+  if(hint){ hint.style.display=''; hint.textContent='Manual disposition'; }
+  var closeBtn = document.getElementById('ag-disp-close');
+  if(closeBtn) closeBtn.style.display='';
+  setDispSubmitEnabled(true);
+  // Scroll the form into view
+  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+// Cancel an open manual disposition without saving.
+function cancelManualDisposition(){
+  _manualDispositionMode = false;
+  var closeBtn = document.getElementById('ag-disp-close');
+  if(closeBtn) closeBtn.style.display='none';
+  hideDispositionPanel();
 }
 
 // ── Call alert state ────────────────────────────────────────────────────────
@@ -2804,7 +2994,7 @@ function buildAgentRow(a, t, idx, total){
   }
 
   // Status badge
-  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px">'+a.status+'</span>';
+  var badgeHtml = '<span class="badge '+statusBadgeClass(a.status)+'" style="font-size:10px;'+statusBadgeStyle(a.status)+'">'+a.status+'</span>';
 
   // Action button — only for Available (#1) and On Call
   var actionHtml = '';
@@ -2977,14 +3167,18 @@ function renderAdminAux(){
   var c=document.getElementById('adm-aux-list');c.innerHTML='';
   allAgents.filter(function(a){return a.role==='agent';}).forEach(function(a){
     var div=document.createElement('div');div.className='aux-row-item';
-    var allOpts=['Available','Break','Lunch','Coaching','Meeting','Outbound Call','Not Available','End of Shift'];
-    var cv=allOpts.indexOf(a.status)!==-1?a.status:'Available';
+    var allOpts=agentSelectableStatuses();
+    var cv=allOpts.indexOf(a.status)!==-1?a.status:(a.status||'Available');
+    // If the agent's current status isn't selectable (e.g. On Call/ACW), show it as a disabled current option
     var optHtml=allOpts.map(function(o){return '<option value="'+o+'"'+(cv===o?' selected':'')+'>'+o+'</option>';}).join('');
+    if(allOpts.indexOf(a.status)===-1 && a.status){
+      optHtml = '<option value="'+a.status+'" selected>'+a.status+' (current)</option>' + optHtml;
+    }
     var isChecked = _auxSelectedIds[String(a.id)] ? ' checked' : '';
     div.innerHTML='<input type="checkbox" class="aux-cb" data-agent-id="'+a.id+'"'+isChecked+' onchange="onAuxCheckboxChange(this)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0"/>'
       +'<div class="avatar" style="width:30px;height:30px;font-size:11px;flex-shrink:0">'+initials(a.name)+'</div>'
       +'<span style="flex:1;font-size:13px;font-weight:600">'+a.name+'</span>'
-      +'<span class="badge '+statusBadgeClass(a.status)+'" style="min-width:95px;text-align:center">'+a.status+'</span>'
+      +'<span class="badge '+statusBadgeClass(a.status)+'" style="min-width:95px;text-align:center;'+statusBadgeStyle(a.status)+'">'+a.status+'</span>'
       +'<select onchange="adminChangeAux('+a.id+',this.value)" style="width:auto;min-width:155px">'
       +optHtml+'</select>';
     c.appendChild(div);
@@ -3263,7 +3457,7 @@ function renderAdminAgentTable(){
       +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
       +'<span style="font-size:12px;color:#6b7280">'+a.username+'</span>'
       +'<span><span class="badge b-agent">Agent</span></span>'
-      +'<span><span class="badge '+statusBadgeClass(a.status)+'">'+a.status+'</span></span>'
+      +'<span><span class="badge '+statusBadgeClass(a.status)+'" style="'+statusBadgeStyle(a.status)+'">'+a.status+'</span></span>'
       +'<span style="display:flex;gap:5px">'
       +'<button class="btn btn-ghost btn-sm" onclick="openEditAgent(\''+a.id+'\')">✏ Edit</button>'
       +'<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5" onclick="confirmDelete(\''+a.id+'\',\''+a.name.replace(/'/g,"\\'")+'\')" >🗑</button>'
