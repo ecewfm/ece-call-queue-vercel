@@ -1,6 +1,6 @@
 // api/index.js — main API router for all backend functions
 import crypto from 'crypto';
-import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows, archiveDiagnostics } from './_lib/sheets.js';
+import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows, archiveDiagnostics, ensureSheetColumns } from './_lib/sheets.js';
 
 const SALT = process.env.SALT || 'ECE_QUEUE_2026';
 const SHEET_ID = process.env.SHEET_ID;
@@ -592,6 +592,7 @@ async function setAircallPref(agentId, pref) {
   const validPref = ['', 'show', 'hide'].includes(pref) ? pref : '';
   const rowNum = await getAgentRowIndex(agentId);
   if (!rowNum) return { success: false, error: 'Agent not found' };
+  await ensureSheetColumns('Agents', 14); // column N is the 14th — make sure the grid is wide enough
   await writeRange(`Agents!N${rowNum}`, [[validPref]]);
   return { success: true, aircallPref: validPref };
 }
