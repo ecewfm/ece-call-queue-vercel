@@ -147,6 +147,30 @@ export async function appendRow(sheetName, row) {
   });
 }
 
+// Ensure a sheet has at least `minCols` columns; expands the grid if needed.
+// Fixes "Range exceeds grid limits" when writing to a column the sheet doesn't have yet.
+export async function ensureSheetColumns(sheetName, minCols) {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: 'sheets(properties(sheetId,title,gridProperties))' });
+  const sheet = (meta.data.sheets || []).find(s => s.properties && s.properties.title === sheetName);
+  if (!sheet) return false;
+  const current = (sheet.properties.gridProperties && sheet.properties.gridProperties.columnCount) || 0;
+  if (current >= minCols) return true;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      requests: [{
+        appendDimension: {
+          sheetId: sheet.properties.sheetId,
+          dimension: 'COLUMNS',
+          length: minCols - current,
+        }
+      }]
+    }
+  });
+  return true;
+}
+
 // Replace all data rows (everything below the header) of a sheet with `rows`.
 // `lastCol` is the last column letter (e.g. 'J' for Logs, 'I' for Dispositions).
 // Header in row 1 is always preserved. This is how archive-delete trims the sheet.
