@@ -1,6 +1,6 @@
 // api/index.js — main API router for all backend functions
 import crypto from 'crypto';
-import { readRange, writeRange, appendRow, getSheets, batchUpdateValues } from './_lib/sheets.js';
+import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows } from './_lib/sheets.js';
 
 const SALT = process.env.SALT || 'ECE_QUEUE_2026';
 const SHEET_ID = process.env.SHEET_ID;
@@ -276,6 +276,92 @@ async function getDispositions(limit) {
   list.reverse();
   const n = parseInt(limit, 10);
   return (n && n > 0) ? list.slice(0, n) : list;
+}
+
+// ── ARCHIVE (Logs + Dispositions → CSV in Drive) ──────────────────────────────
+
+const ARCHIVE_FOLDER_ID = process.env.ARCHIVE_FOLDER_ID || '1-MNG1ll1eE4QAdRxJvUY_vhOxmR8LWCF';
+
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function rowsToCSV(header, rows) {
+  const lines = [header.map(csvEscape).join(',')];
+  for (const r of rows) lines.push(r.map(csvEscape).join(','));
+  return lines.join('\r\n');
+}
+function mmddyyyy(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '-' + p(d.getDate()) + '-' + d.getFullYear();
+}
+// Is a timestamp (column A) within [fromStr, toStr] inclusive, by calendar date?
+function inRange(tsRaw, fromStr, toStr) {
+  if (!tsRaw) return false;
+  const d = new Date(tsRaw);
+  if (isNaN(d.getTime())) return false;
+  const from = fromStr ? new Date(fromStr + 'T00:00:00') : null;
+  const to   = toStr   ? new Date(toStr   + 'T23:59:59') : null;
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
+// Archive Logs + Dispositions in a date range to two CSVs in Drive.
+// deleteAfter = true also removes the archived rows from the sheets (after verify).
+async function archiveData(fromStr, toStr, deleteAfter) {
+  await ensureDispositionsSheet();
+  const runDate = mmddyyyy(nowDate());
+  const result = { logs: {}, dispositions: {}, deleted: !!deleteAfter };
+
+  // ---- LOGS (A:J, 10 cols) ----
+  const LOG_HEADER = ['Timestamp','AgentID','AgentName','Event','FromStatus','ToStatus','Note','DurationSec','Date','Time'];
+  const logRows = await readRange('Logs!A2:J');
+  const logIn = [], logKeep = [];
+  for (const r of logRows) {
+    if (!r[0]) continue;
+    if (inRange(r[0], fromStr, toStr)) logIn.push(r);
+    else logKeep.push(r);
+  }
+  if (logIn.length) {
+    const csv = rowsToCSV(LOG_HEADER, logIn);
+    const file = await uploadCSVToDrive(ARCHIVE_FOLDER_ID, `7Cs Logs ${runDate}.csv`, csv);
+    const ok = file && file.id ? await verifyDriveFile(file.id) : null;
+    if (!ok) throw new Error('Logs CSV upload could not be verified — aborting (no rows deleted).');
+    result.logs = { archived: logIn.length, file: file.name, fileId: file.id, link: file.webViewLink };
+    if (deleteAfter) {
+      await rewriteDataRows('Logs', logKeep, 'J');
+      result.logs.remaining = logKeep.length;
+    }
+  } else {
+    result.logs = { archived: 0 };
+  }
+
+  // ---- DISPOSITIONS (A:I, 9 cols) ----
+  const DISP_HEADER = ['Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec'];
+  const dispRows = await readRange('Dispositions!A2:I');
+  const dispIn = [], dispKeep = [];
+  for (const r of dispRows) {
+    if (!r[0]) continue;
+    if (inRange(r[0], fromStr, toStr)) dispIn.push(r);
+    else dispKeep.push(r);
+  }
+  if (dispIn.length) {
+    const csv = rowsToCSV(DISP_HEADER, dispIn);
+    const file = await uploadCSVToDrive(ARCHIVE_FOLDER_ID, `7Cs Disposition ${runDate}.csv`, csv);
+    const ok = file && file.id ? await verifyDriveFile(file.id) : null;
+    if (!ok) throw new Error('Dispositions CSV upload could not be verified — aborting (no rows deleted).');
+    result.dispositions = { archived: dispIn.length, file: file.name, fileId: file.id, link: file.webViewLink };
+    if (deleteAfter) {
+      await rewriteDataRows('Dispositions', dispKeep, 'I');
+      result.dispositions.remaining = dispKeep.length;
+    }
+  } else {
+    result.dispositions = { archived: 0 };
+  }
+
+  result.success = true;
+  return result;
 }
 
 async function logCallAvoidance(agentId, note) {
@@ -636,6 +722,7 @@ export default async function handler(req, res) {
       case 'finishACW':                 data = await finishACW(params.agentId, params.expired); break;
       case 'saveDisposition':           data = await saveDisposition(params.disposition || params); break;
       case 'getDispositions':           data = await getDispositions(params.limit); break;
+      case 'archiveData':               data = await archiveData(params.from, params.to, params.deleteAfter); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
       case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
