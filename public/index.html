@@ -1021,6 +1021,30 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-title">🗄️ Archive data (Logs & Dispositions)</div>
+        <div style="background:#fffbeb;border-left:3px solid #d97706;padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:14px">
+          <span style="font-size:12px;color:#92400e">⏰ <strong>Reminder:</strong> Archive Logs and Dispositions weekly (e.g. each Monday for the previous Mon–Sun) to keep the sheet fast. Pick a date range below, archive to Google Drive, then optionally delete the archived rows.</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">From date</label>
+            <input type="date" id="arch-from" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">To date</label>
+            <input type="date" id="arch-to" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="setArchiveLastWeek()" style="margin-bottom:1px">Last week (Mon–Sun)</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="runArchive(false)">⬇ Archive only (keep rows)</button>
+          <button class="btn" style="background:#dc2626;color:#fff" onclick="runArchive(true)">🗑 Archive &amp; delete</button>
+        </div>
+        <div id="arch-status" style="font-size:12px;margin-top:12px"></div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px">Files saved to the configured Google Drive folder as <strong>7Cs Logs mm-dd-yyyy.csv</strong> and <strong>7Cs Disposition mm-dd-yyyy.csv</strong> (today's date). "Archive &amp; delete" verifies each CSV uploaded before removing any rows; the header row is always kept.</p>
+      </div>
+
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveThresholds()">💾 Save all settings</button>
         <button class="btn btn-ghost" onclick="testNotification()">🔔 Test notification</button>
@@ -1126,7 +1150,7 @@ window.google.script.run = {
 [
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
-  'markCallEnded','finishACW','saveDisposition','getDispositions','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
+  'markCallEnded','finishACW','saveDisposition','getDispositions','archiveData','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary'
@@ -1154,6 +1178,7 @@ function _mapArgsToParams(fn, args){
     finishACW:                   ['agentId','expired'],
     saveDisposition:             ['disposition'],
     getDispositions:             ['limit'],
+    archiveData:                 ['from','to','deleteAfter'],
     logCallAvoidance:            ['agentId','note'],
     logMissedCall:               ['agentId','secondsElapsed'],
     getGlobalSettings:           [],
@@ -1613,6 +1638,72 @@ function saveDispositionCategories(){
       toast('Failed to save categories: '+(e&&e.message?e.message:''),'error');
     })
     .saveGlobalSettings({ dispositionCategories: json });
+}
+
+// ── Archive (Logs & Dispositions → Drive CSV) ─────────────────────────────────
+function setArchiveLastWeek(){
+  // Previous calendar week, Monday 00:00 to Sunday 23:59 (local time)
+  var now = new Date();
+  var day = now.getDay(); // 0=Sun..6=Sat
+  // Days since the most recent Monday
+  var sinceMon = (day === 0) ? 6 : (day - 1);
+  var thisMon = new Date(now); thisMon.setDate(now.getDate() - sinceMon);
+  var lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+  var lastSun = new Date(lastMon); lastSun.setDate(lastMon.getDate() + 6);
+  var fmt = function(d){
+    var p=function(n){return (n<10?'0':'')+n;};
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  };
+  document.getElementById('arch-from').value = fmt(lastMon);
+  document.getElementById('arch-to').value = fmt(lastSun);
+}
+
+function runArchive(deleteAfter){
+  var from = document.getElementById('arch-from').value;
+  var to   = document.getElementById('arch-to').value;
+  var statusEl = document.getElementById('arch-status');
+  if(!from || !to){
+    statusEl.innerHTML = '<span style="color:#dc2626">Please select both a From and To date.</span>';
+    return;
+  }
+  if(from > to){
+    statusEl.innerHTML = '<span style="color:#dc2626">From date must be on or before To date.</span>';
+    return;
+  }
+  var action = deleteAfter ? 'Archive & delete' : 'Archive';
+  if(deleteAfter){
+    if(!confirm('Archive AND DELETE Logs + Dispositions from '+from+' to '+to+'?\n\nCSVs will be written to Drive and verified first, then those rows removed from the sheets. This cannot be undone.')) return;
+  }
+  statusEl.innerHTML = '<span style="color:#6b7280">⏳ '+action+' in progress… please wait.</span>';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res || !res.success){
+        statusEl.innerHTML = '<span style="color:#dc2626">Archive failed. Nothing was deleted.</span>';
+        return;
+      }
+      var l = res.logs||{}, d = res.dispositions||{};
+      var parts = [];
+      parts.push('<div style="background:#ecfdf5;border-left:3px solid #059669;padding:8px 12px;border-radius:0 6px 6px 0">');
+      parts.push('<div style="font-weight:700;color:#065f46;margin-bottom:4px">✓ '+action+' complete</div>');
+      parts.push('<div style="font-size:12px;color:#065f46">Logs: '+(l.archived||0)+' archived'
+        + (l.file?' → '+l.file:'')
+        + (res.deleted && typeof l.remaining!=='undefined' ? ' ('+l.remaining+' kept)':'')+'</div>');
+      parts.push('<div style="font-size:12px;color:#065f46">Dispositions: '+(d.archived||0)+' archived'
+        + (d.file?' → '+d.file:'')
+        + (res.deleted && typeof d.remaining!=='undefined' ? ' ('+d.remaining+' kept)':'')+'</div>');
+      if((l.archived||0)===0 && (d.archived||0)===0){
+        parts.push('<div style="font-size:12px;color:#92400e">No records found in that date range.</div>');
+      }
+      parts.push('</div>');
+      statusEl.innerHTML = parts.join('');
+      toast(action+' complete','success');
+    })
+    .withFailureHandler(function(e){
+      statusEl.innerHTML = '<span style="color:#dc2626">Archive failed: '+(e&&e.message?e.message:'error')+'. Nothing was deleted.</span>';
+      toast('Archive failed','error');
+    })
+    .archiveData(from, to, !!deleteAfter);
 }
 
 function saveThresholds(){
