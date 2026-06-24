@@ -629,7 +629,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <span id="ag-disp-status-hint" style="font-size:11px;color:#0891b2">Fillable during the call</span>
             <button id="ag-disp-close" onclick="cancelManualDisposition()" title="Close" style="display:none;border:none;background:transparent;font-size:16px;cursor:pointer;color:#0e7490;padding:0 4px">✕</button>
           </div>
-          <div style="padding:12px 14px">
+          <div style="padding:12px 14px;max-width:760px;margin:0 auto">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <div>
                 <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Customer number</label>
@@ -1926,7 +1926,7 @@ function relocateDispositionPanel(){
     panel.style.maxHeight = 'none';
     panel.style.borderTop = '2px solid #06b6d4';
   } else {
-    panel.style.maxHeight = '48%';
+    panel.style.maxHeight = '60%';
   }
 }
 
@@ -2841,16 +2841,21 @@ var _lqDragSrc = null;
 var _lqEditingId = null;
 
 // Load from globalSettings if present
-function loadLiveQueueLayout(){
+var _lqLayoutLoaded = false;
+function loadLiveQueueLayout(force){
+  // Only hydrate from saved settings ONCE (or when forced, e.g. after Reset).
+  // Otherwise every render would overwrite unsaved in-memory edits (filter changes, reorder, resize).
+  if(_lqLayoutLoaded && !force) return;
   if(!globalSettings) return;
   var saved = globalSettings.liveQueueLayout;
-  if(!saved) return;
+  if(!saved){ _lqLayoutLoaded = true; return; }
   try {
     var parsed = (typeof saved === 'string') ? JSON.parse(saved) : saved;
     if(Array.isArray(parsed) && parsed.length){
       liveQueueTables = parsed;
     }
   } catch(e){ console.warn('Failed to parse liveQueueLayout', e); }
+  _lqLayoutLoaded = true;
 }
 
 function renderAdminQueue(){
