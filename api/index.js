@@ -1,6 +1,6 @@
 // api/index.js — main API router for all backend functions
 import crypto from 'crypto';
-import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows } from './_lib/sheets.js';
+import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows, archiveDiagnostics } from './_lib/sheets.js';
 
 const SALT = process.env.SALT || 'ECE_QUEUE_2026';
 const SHEET_ID = process.env.SHEET_ID;
@@ -723,6 +723,7 @@ export default async function handler(req, res) {
       case 'saveDisposition':           data = await saveDisposition(params.disposition || params); break;
       case 'getDispositions':           data = await getDispositions(params.limit); break;
       case 'archiveData':               data = await archiveData(params.from, params.to, params.deleteAfter); break;
+      case 'archiveDiagnostics':        data = await archiveDiagnostics(process.env.ARCHIVE_FOLDER_ID || '1-MNG1ll1eE4QAdRxJvUY_vhOxmR8LWCF'); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
       case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
