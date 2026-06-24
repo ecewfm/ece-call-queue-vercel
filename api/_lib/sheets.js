@@ -35,20 +35,32 @@ export function getDrive() {
 // Upload a CSV string to a Drive folder. Returns the created file's metadata.
 export async function uploadCSVToDrive(folderId, filename, csvString) {
   const drive = getDrive();
-  const res = await drive.files.create({
-    requestBody: {
-      name: filename,
-      parents: folderId ? [folderId] : undefined,
-      mimeType: 'text/csv',
-    },
-    media: {
-      mimeType: 'text/csv',
-      body: csvString,
-    },
-    fields: 'id, name, size, webViewLink',
-    supportsAllDrives: true,
-  });
-  return res.data;
+  try {
+    const res = await drive.files.create({
+      requestBody: {
+        name: filename,
+        parents: folderId ? [folderId] : undefined,
+        mimeType: 'text/csv',
+      },
+      media: {
+        mimeType: 'text/csv',
+        body: csvString,
+      },
+      fields: 'id, name, size, webViewLink',
+      supportsAllDrives: true,
+    });
+    return res.data;
+  } catch (e) {
+    const reason = (e && e.errors && e.errors[0] && e.errors[0].reason) || '';
+    const code = e && e.code;
+    if (code === 404 || reason === 'notFound') {
+      throw new Error('Drive folder not found or not shared with the service account (vercel-sheets-access@ece-call-queue.iam.gserviceaccount.com). Share the folder as Editor.');
+    }
+    if (code === 403 || reason === 'insufficientPermissions' || reason === 'forbidden') {
+      throw new Error('Permission denied writing to Drive. Share the archive folder with the service account as Editor, and ensure the Drive API is enabled.');
+    }
+    throw new Error('Drive upload failed: ' + (e && e.message ? e.message : 'unknown error'));
+  }
 }
 
 // Verify a file exists in Drive by ID (used before deleting source rows).
