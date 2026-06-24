@@ -1040,6 +1040,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="runArchive(false)">⬇ Archive only (keep rows)</button>
           <button class="btn" style="background:#dc2626;color:#fff" onclick="runArchive(true)">🗑 Archive &amp; delete</button>
+          <button class="btn btn-ghost" onclick="runArchiveDiagnostics()">🔧 Run diagnostics</button>
         </div>
         <div id="arch-status" style="font-size:12px;margin-top:12px"></div>
         <p style="font-size:11px;color:#94a3b8;margin-top:8px">Files saved to the configured Google Drive folder as <strong>7Cs Logs mm-dd-yyyy.csv</strong> and <strong>7Cs Disposition mm-dd-yyyy.csv</strong> (today's date). "Archive &amp; delete" verifies each CSV uploaded before removing any rows; the header row is always kept.</p>
@@ -1162,7 +1163,7 @@ window.google.script.run = {
 [
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
-  'markCallEnded','finishACW','saveDisposition','getDispositions','archiveData','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
+  'markCallEnded','finishACW','saveDisposition','getDispositions','archiveData','archiveDiagnostics','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary'
@@ -1191,6 +1192,7 @@ function _mapArgsToParams(fn, args){
     saveDisposition:             ['disposition'],
     getDispositions:             ['limit'],
     archiveData:                 ['from','to','deleteAfter'],
+    archiveDiagnostics:          [],
     logCallAvoidance:            ['agentId','note'],
     logMissedCall:               ['agentId','secondsElapsed'],
     getGlobalSettings:           [],
@@ -1668,6 +1670,30 @@ function setArchiveLastWeek(){
   };
   document.getElementById('arch-from').value = fmt(lastMon);
   document.getElementById('arch-to').value = fmt(lastSun);
+}
+
+function runArchiveDiagnostics(){
+  var statusEl = document.getElementById('arch-status');
+  statusEl.innerHTML = '<span style="color:#6b7280">Running diagnostics...</span>';
+  google.script.run
+    .withSuccessHandler(function(d){
+      d = d || {};
+      var rows = [];
+      rows.push('<div style="background:#f8fafc;border:1px solid #e2e6ea;border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;line-height:1.7">');
+      rows.push('<div style="font-weight:700;color:#1d2b23;margin-bottom:6px">Archive diagnostics</div>');
+      rows.push('Key project_id: <strong>'+(d.projectId||'(unknown)')+'</strong>');
+      rows.push('Service account: '+(d.clientEmail||'(unknown)'));
+      rows.push('Drive API reachable: '+(d.driveAbout?('<span style="color:#059669">yes ('+d.driveAbout+')</span>'):'<span style="color:#dc2626">no</span>'));
+      rows.push('Folder reachable: '+(d.folderReachable?('<span style="color:#059669">yes ('+d.folderReachable+')</span>'):'<span style="color:#dc2626">no</span>'));
+      if(d.error) rows.push('<span style="color:#dc2626">Error: '+d.error+'</span>');
+      rows.push('</div>');
+      rows.push('<div style="font-size:11px;color:#6b7280;margin-top:6px">If Drive API reachable is no, enable the Drive API on the project shown as Key project_id above (it may differ from the project where you enabled it).</div>');
+      statusEl.innerHTML = rows.join('<br>');
+    })
+    .withFailureHandler(function(e){
+      statusEl.innerHTML = '<span style="color:#dc2626">Diagnostics failed: '+(e&&e.message?e.message:'error')+'</span>';
+    })
+    .archiveDiagnostics();
 }
 
 function runArchive(deleteAfter){
