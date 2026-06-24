@@ -1109,7 +1109,19 @@ function apiCall(fnName, params, onSuccess, onFailure) {
 
   fetch(url, { method: 'GET', mode: 'cors', redirect: 'follow' })
     .then(function(r){
-      if(!r.ok) throw new Error('HTTP '+r.status);
+      if(!r.ok){
+        // Read the body so the backend's real error message surfaces (not just "HTTP 500")
+        return r.text().then(function(body){
+          var msg = 'HTTP ' + r.status;
+          try {
+            var j = JSON.parse(body);
+            if(j && j.error) msg = j.error;
+          } catch(e){
+            if(body && body.indexOf('<') !== 0 && body.length < 300) msg = body;
+          }
+          throw new Error(msg);
+        });
+      }
       return r.text();
     })
     .then(function(txt){
