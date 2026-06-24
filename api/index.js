@@ -548,7 +548,8 @@ async function getGlobalSettings() {
       { category: 'Support',        subcategories: ['Technical issue','Billing question','Account update'] },
       { category: 'Complaint',      subcategories: ['Service delay','Product defect','Staff conduct'] },
       { category: 'General Inquiry', subcategories: ['Hours/location','Product info','Other'] }
-    ])
+    ]),
+    customStatuses: JSON.stringify([])  // [{name, color}] — admin-defined agent-selectable "away" statuses
   };
   rows.forEach(r => {
     if (!r[0]) return;
