@@ -51,16 +51,44 @@ export async function uploadCSVToDrive(folderId, filename, csvString) {
     });
     return res.data;
   } catch (e) {
-    const reason = (e && e.errors && e.errors[0] && e.errors[0].reason) || '';
-    const code = e && e.code;
-    if (code === 404 || reason === 'notFound') {
-      throw new Error('Drive folder not found or not shared with the service account (vercel-sheets-access@ece-call-queue.iam.gserviceaccount.com). Share the folder as Editor.');
-    }
-    if (code === 403 || reason === 'insufficientPermissions' || reason === 'forbidden') {
-      throw new Error('Permission denied writing to Drive. Share the archive folder with the service account as Editor, and ensure the Drive API is enabled.');
-    }
-    throw new Error('Drive upload failed: ' + (e && e.message ? e.message : 'unknown error'));
+    // Surface Google's actual reason/message so the cause is unambiguous
+    const ge = (e && e.errors && e.errors[0]) || {};
+    const reason = ge.reason || '';
+    const gmsg = ge.message || (e && e.message) || 'unknown';
+    const code = (e && e.code) || '';
+    throw new Error('Drive upload failed [code=' + code + ', reason=' + reason + ']: ' + gmsg);
   }
+}
+
+// Diagnostic: which project does the key belong to, and can we reach the folder?
+export async function archiveDiagnostics(folderId) {
+  const out = { projectId: null, clientEmail: null, folderId: folderId, folderReachable: null, driveAbout: null, error: null };
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    out.projectId = creds.project_id || null;
+    out.clientEmail = creds.client_email || null;
+  } catch (e) { out.error = 'Cannot parse GOOGLE_SERVICE_ACCOUNT_JSON: ' + e.message; return out; }
+
+  const drive = getDrive();
+  // Probe 1: can we read Drive at all (does the API work for this project)?
+  try {
+    const about = await drive.about.get({ fields: 'user(emailAddress)' });
+    out.driveAbout = about && about.data && about.data.user ? about.data.user.emailAddress : 'ok';
+  } catch (e) {
+    const ge = (e && e.errors && e.errors[0]) || {};
+    out.error = 'Drive about.get failed [code=' + (e && e.code) + ', reason=' + (ge.reason||'') + ']: ' + (ge.message || e.message);
+    return out;
+  }
+  // Probe 2: can we see the target folder?
+  try {
+    const f = await drive.files.get({ fileId: folderId, fields: 'id, name', supportsAllDrives: true });
+    out.folderReachable = f && f.data ? (f.data.name || true) : false;
+  } catch (e) {
+    const ge = (e && e.errors && e.errors[0]) || {};
+    out.folderReachable = false;
+    out.error = 'Folder get failed [code=' + (e && e.code) + ', reason=' + (ge.reason||'') + ']: ' + (ge.message || e.message);
+  }
+  return out;
 }
 
 // Verify a file exists in Drive by ID (used before deleting source rows).
