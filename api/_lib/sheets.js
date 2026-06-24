@@ -1,20 +1,65 @@
-// api/_lib/sheets.js — shared Google Sheets helper
+// api/_lib/sheets.js — shared Google Sheets + Drive helper
 
 import { google } from 'googleapis';
 
 const SHEET_ID = process.env.SHEET_ID;
 
 let _sheets = null;
+let _drive = null;
+
+function getAuth() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  return new google.auth.GoogleAuth({
+    credentials,
+    scopes: [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive',
+    ],
+  });
+}
 
 export function getSheets() {
   if (_sheets) return _sheets;
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+  const auth = getAuth();
   _sheets = google.sheets({ version: 'v4', auth });
   return _sheets;
+}
+
+export function getDrive() {
+  if (_drive) return _drive;
+  const auth = getAuth();
+  _drive = google.drive({ version: 'v3', auth });
+  return _drive;
+}
+
+// Upload a CSV string to a Drive folder. Returns the created file's metadata.
+export async function uploadCSVToDrive(folderId, filename, csvString) {
+  const drive = getDrive();
+  const res = await drive.files.create({
+    requestBody: {
+      name: filename,
+      parents: folderId ? [folderId] : undefined,
+      mimeType: 'text/csv',
+    },
+    media: {
+      mimeType: 'text/csv',
+      body: csvString,
+    },
+    fields: 'id, name, size, webViewLink',
+    supportsAllDrives: true,
+  });
+  return res.data;
+}
+
+// Verify a file exists in Drive by ID (used before deleting source rows).
+export async function verifyDriveFile(fileId) {
+  const drive = getDrive();
+  try {
+    const res = await drive.files.get({ fileId, fields: 'id, name, size', supportsAllDrives: true });
+    return res.data;
+  } catch (e) {
+    return null;
+  }
 }
 
 export async function readRange(range) {
@@ -60,6 +105,27 @@ export async function appendRow(sheetName, row) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [row] },
   });
+}
+
+// Replace all data rows (everything below the header) of a sheet with `rows`.
+// `lastCol` is the last column letter (e.g. 'J' for Logs, 'I' for Dispositions).
+// Header in row 1 is always preserved. This is how archive-delete trims the sheet.
+export async function rewriteDataRows(sheetName, rows, lastCol) {
+  const sheets = getSheets();
+  // 1. Clear everything from row 2 down
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SHEET_ID,
+    range: `${sheetName}!A2:${lastCol}`,
+  });
+  // 2. Write back the rows we want to keep (if any)
+  if (rows && rows.length) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${sheetName}!A2`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows },
+    });
+  }
 }
 
 // Convert sheet serial number to JS Date
