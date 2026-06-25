@@ -60,6 +60,43 @@ export async function uploadCSVToDrive(folderId, filename, csvString) {
   }
 }
 
+// ── Gmail (send via domain-wide delegation) ───────────────────────────────────
+// Sends as GMAIL_SENDER (a real Workspace user the service account is delegated to).
+// Requires: Gmail API enabled on the project, and domain-wide delegation configured
+// in the Workspace Admin console for scope gmail.send.
+export async function sendGmail(to, subject, htmlBody) {
+  const sender = process.env.GMAIL_SENDER;
+  if (!sender) throw new Error('GMAIL_SENDER env var not set (the Workspace user to send as).');
+  const recipients = Array.isArray(to) ? to.join(', ') : String(to || '');
+  if (!recipients.trim()) throw new Error('No recipient email address provided.');
+
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const auth = new google.auth.JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
+    scopes: ['https://www.googleapis.com/auth/gmail.send'],
+    subject: sender, // impersonate this user
+  });
+  const gmail = google.gmail({ version: 'v1', auth });
+
+  const msg =
+    'From: ' + sender + '\r\n' +
+    'To: ' + recipients + '\r\n' +
+    'Subject: ' + subject + '\r\n' +
+    'MIME-Version: 1.0\r\n' +
+    'Content-Type: text/html; charset=UTF-8\r\n\r\n' +
+    htmlBody;
+  const raw = Buffer.from(msg).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  try {
+    const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    return { success: true, id: res.data.id };
+  } catch (e) {
+    const ge = (e && e.errors && e.errors[0]) || {};
+    throw new Error('Gmail send failed [code=' + (e && e.code) + ', reason=' + (ge.reason || '') + ']: ' + (ge.message || e.message));
+  }
+}
+
 // Diagnostic: which project does the key belong to, and can we reach the folder?
 export async function archiveDiagnostics(folderId) {
   const out = { projectId: null, clientEmail: null, folderId: folderId, folderReachable: null, driveAbout: null, error: null };
