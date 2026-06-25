@@ -1,6 +1,6 @@
 // api/index.js — main API router for all backend functions
 import crypto from 'crypto';
-import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows, archiveDiagnostics, ensureSheetColumns } from './_lib/sheets.js';
+import { readRange, writeRange, appendRow, getSheets, batchUpdateValues, uploadCSVToDrive, verifyDriveFile, rewriteDataRows, archiveDiagnostics, ensureSheetColumns, sendGmail } from './_lib/sheets.js';
 
 const SALT = process.env.SALT || 'ECE_QUEUE_2026';
 const SHEET_ID = process.env.SHEET_ID;
@@ -242,12 +242,147 @@ async function saveDisposition(d) {
     d.category || '',
     d.subcategory || '',
     d.notes || '',
-    d.callDurationSec || 0
+    d.callDurationSec || 0,
+    d.aircallNumber || ''
   ]);
   // Reference note in the logs
   await logEvent(d.agentId, d.agentName, 'Disposition', '', '', now, d.callDurationSec || 0,
     `${d.category || '—'} › ${d.subcategory || '—'}${d.customerNumber ? ' | #'+d.customerNumber : ''}`);
+  // Fire a trigger email if this category+subcategory is configured (best-effort; never blocks the save)
+  try { await maybeSendDispositionEmail({ ...d, timestamp: now.toISOString() }); }
+  catch (e) { /* swallow — email failure must not break disposition saving */ }
   return { success: true };
+}
+
+// ── Disposition email triggers + EOD report ───────────────────────────────────
+// Settings keys (JSON in the Settings sheet via saveGlobalSettings):
+//   emailTriggers: [{ category, subcategory, recipients }]  recipients = comma-separated
+//   eodRecipients: comma-separated string of addresses for the EOD summary
+
+function parseTriggers() {
+  const s = _globalSettingsCache || {};
+  let raw = s.emailTriggers;
+  if (!raw) return [];
+  try { const a = (typeof raw === 'string') ? JSON.parse(raw) : raw; return Array.isArray(a) ? a : []; }
+  catch (e) { return []; }
+}
+
+let _globalSettingsCache = null; // refreshed by getGlobalSettings
+
+function fmtDispEmailRow(label, value) {
+  return '<tr><td style="padding:4px 10px;font-weight:bold;background:#f1f5f9">' + label +
+         '</td><td style="padding:4px 10px">' + (value || '—') + '</td></tr>';
+}
+
+async function maybeSendDispositionEmail(d) {
+  // Load fresh settings so triggers are current
+  const settings = await getGlobalSettings();
+  let triggers = [];
+  try { triggers = JSON.parse(settings.emailTriggers || '[]'); } catch (e) { triggers = []; }
+  if (!Array.isArray(triggers) || !triggers.length) return;
+
+  const cat = String(d.category || '').trim().toLowerCase();
+  const sub = String(d.subcategory || '').trim().toLowerCase();
+
+  // Find matching trigger(s): match category, and subcategory if the trigger specifies one
+  const matched = triggers.filter(t => {
+    const tc = String(t.category || '').trim().toLowerCase();
+    const ts = String(t.subcategory || '').trim().toLowerCase();
+    if (tc !== cat) return false;
+    if (ts && ts !== sub) return false; // blank trigger subcategory = any subcategory
+    return true;
+  });
+  if (!matched.length) return;
+
+  // Collect unique recipients across matched triggers
+  const recips = {};
+  matched.forEach(t => String(t.recipients || '').split(/[,;]/).forEach(r => { const e = r.trim(); if (e) recips[e] = true; }));
+  const to = Object.keys(recips);
+  if (!to.length) return;
+
+  const when = fmtTs(new Date(d.timestamp || Date.now()));
+  const html =
+    '<div style="font-family:Arial,sans-serif;color:#1a1a1a">' +
+    '<h2 style="color:#1d2b23;margin:0 0 4px">New Call Disposition</h2>' +
+    '<p style="color:#6b7280;margin:0 0 12px">A disposition matching an email trigger was submitted.</p>' +
+    '<table style="border-collapse:collapse;border:1px solid #e2e6ea;font-size:14px">' +
+    fmtDispEmailRow('Time', when) +
+    fmtDispEmailRow('Agent', d.agentName) +
+    fmtDispEmailRow('Category', d.category) +
+    fmtDispEmailRow('Subcategory', d.subcategory) +
+    fmtDispEmailRow('Customer Number', d.customerNumber) +
+    fmtDispEmailRow('Customer Name', d.customerName) +
+    fmtDispEmailRow('Aircall Number', d.aircallNumber) +
+    fmtDispEmailRow('Notes', d.notes) +
+    '</table>' +
+    '<p style="color:#94a3b8;font-size:12px;margin-top:14px">Sent automatically by the ECE Call Queue System.</p>' +
+    '</div>';
+
+  await sendGmail(to, 'Call Disposition: ' + (d.category || '') + ' › ' + (d.subcategory || ''), html);
+}
+
+// Send/test an EOD summary of all dispositions for a given date (YYYY-MM-DD, local).
+async function sendEODReport(dateStr, recipientsOverride) {
+  const settings = await getGlobalSettings();
+  const recips = (recipientsOverride || settings.eodRecipients || '')
+    .split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  if (!recips.length) throw new Error('No EOD recipients configured (Settings → Email triggers → EOD recipients).');
+
+  const all = await getDispositions(0);
+  // Filter to the requested local calendar date
+  const target = dateStr || (function () { const d = new Date(); const p = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); })();
+  const localDate = (iso) => { const d = new Date(iso); if (isNaN(d)) return ''; const p = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); };
+  const rows = all.filter(r => localDate(r.timestamp) === target);
+
+  // Aggregate counts by category › subcategory
+  const counts = {};
+  rows.forEach(r => { const k = (r.category||'—')+' › '+(r.subcategory||'—'); counts[k] = (counts[k]||0)+1; });
+
+  let summaryRows = Object.keys(counts).sort().map(k =>
+    '<tr><td style="padding:4px 10px;border:1px solid #e2e6ea">'+k+'</td><td style="padding:4px 10px;border:1px solid #e2e6ea;text-align:right">'+counts[k]+'</td></tr>'
+  ).join('');
+  if (!summaryRows) summaryRows = '<tr><td colspan="2" style="padding:8px 10px;color:#94a3b8">No dispositions for this date.</td></tr>';
+
+  let detailRows = rows.map(r =>
+    '<tr>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+fmtTs(new Date(r.timestamp))+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.agentName||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.category||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.subcategory||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.customerNumber||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.customerName||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.aircallNumber||'')+'</td>' +
+    '<td style="padding:3px 8px;border:1px solid #e2e6ea">'+(r.notes||'')+'</td>' +
+    '</tr>'
+  ).join('');
+  if (!detailRows) detailRows = '<tr><td colspan="8" style="padding:8px 10px;color:#94a3b8">No dispositions for this date.</td></tr>';
+
+  const html =
+    '<div style="font-family:Arial,sans-serif;color:#1a1a1a">' +
+    '<h2 style="color:#1d2b23;margin:0 0 4px">End-of-Day Disposition Report</h2>' +
+    '<p style="color:#6b7280;margin:0 0 12px">Date: '+target+' &nbsp;|&nbsp; Total dispositions: '+rows.length+'</p>' +
+    '<h3 style="color:#4c6a63;margin:14px 0 6px">Summary by category</h3>' +
+    '<table style="border-collapse:collapse;font-size:14px"><tr><th style="padding:4px 10px;border:1px solid #e2e6ea;background:#1d2b23;color:#fff;text-align:left">Category › Subcategory</th><th style="padding:4px 10px;border:1px solid #e2e6ea;background:#1d2b23;color:#fff">Count</th></tr>'+summaryRows+'</table>' +
+    '<h3 style="color:#4c6a63;margin:18px 0 6px">All dispositions</h3>' +
+    '<table style="border-collapse:collapse;font-size:12px"><tr>'+
+      ['Time','Agent','Category','Subcategory','Cust. #','Cust. name','Aircall #','Notes'].map(h=>'<th style="padding:4px 8px;border:1px solid #e2e6ea;background:#1d2b23;color:#fff;text-align:left">'+h+'</th>').join('')+
+    '</tr>'+detailRows+'</table>' +
+    '<p style="color:#94a3b8;font-size:12px;margin-top:14px">Sent by the ECE Call Queue System.</p>' +
+    '</div>';
+
+  const res = await sendGmail(recips, 'EOD Disposition Report — ' + target, html);
+  return { success: true, date: target, count: rows.length, sentTo: recips, id: res.id };
+}
+
+// Test the email path (sends a simple test email to provided or EOD recipients).
+async function sendTestEmail(recipients) {
+  const to = (recipients || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  if (!to.length) throw new Error('Enter at least one recipient to test.');
+  const res = await sendGmail(to, 'ECE Call Queue — test email',
+    '<div style="font-family:Arial,sans-serif"><h2 style="color:#1d2b23">Test email</h2>' +
+    '<p>If you received this, disposition email sending is working.</p>' +
+    '<p style="color:#94a3b8;font-size:12px">Sent by the ECE Call Queue System.</p></div>');
+  return { success: true, sentTo: to, id: res.id };
 }
 
 async function ensureDispositionsSheet() {
@@ -259,19 +394,27 @@ async function ensureDispositionsSheet() {
       spreadsheetId: SHEET_ID,
       requestBody: { requests: [{ addSheet: { properties: { title: 'Dispositions' } } }] }
     });
-    await writeRange('Dispositions!A1:I1', [[
-      'Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec'
+    await writeRange('Dispositions!A1:J1', [[
+      'Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec','AircallNumber'
     ]]);
+  } else {
+    // Sheet exists — make sure the AircallNumber header (col J) is present for older sheets
+    const hdr = await readRange('Dispositions!A1:J1');
+    if (!hdr[0] || !hdr[0][9]) {
+      await ensureSheetColumns('Dispositions', 10);
+      await writeRange('Dispositions!J1', [['AircallNumber']]);
+    }
   }
 }
 
 async function getDispositions(limit) {
   await ensureDispositionsSheet();
-  const rows = await readRange('Dispositions!A2:I');
+  const rows = await readRange('Dispositions!A2:J');
   const list = rows.filter(r => r[0]).map(r => ({
     timestamp: r[0], agentId: r[1], agentName: r[2],
     customerNumber: r[3], customerName: r[4],
-    category: r[5], subcategory: r[6], notes: r[7], callDurationSec: r[8]
+    category: r[5], subcategory: r[6], notes: r[7], callDurationSec: r[8],
+    aircallNumber: r[9] || ''
   }));
   list.reverse();
   const n = parseInt(limit, 10);
@@ -338,8 +481,8 @@ async function archiveData(fromStr, toStr, deleteAfter) {
   }
 
   // ---- DISPOSITIONS (A:I, 9 cols) ----
-  const DISP_HEADER = ['Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec'];
-  const dispRows = await readRange('Dispositions!A2:I');
+  const DISP_HEADER = ['Timestamp','AgentID','AgentName','CustomerNumber','CustomerName','Category','Subcategory','Notes','CallDurationSec','AircallNumber'];
+  const dispRows = await readRange('Dispositions!A2:J');
   const dispIn = [], dispKeep = [];
   for (const r of dispRows) {
     if (!r[0]) continue;
@@ -353,7 +496,7 @@ async function archiveData(fromStr, toStr, deleteAfter) {
     if (!ok) throw new Error('Dispositions CSV upload could not be verified — aborting (no rows deleted).');
     result.dispositions = { archived: dispIn.length, file: file.name, fileId: file.id, link: file.webViewLink };
     if (deleteAfter) {
-      await rewriteDataRows('Dispositions', dispKeep, 'I');
+      await rewriteDataRows('Dispositions', dispKeep, 'J');
       result.dispositions.remaining = dispKeep.length;
     }
   } else {
@@ -549,7 +692,9 @@ async function getGlobalSettings() {
       { category: 'Complaint',      subcategories: ['Service delay','Product defect','Staff conduct'] },
       { category: 'General Inquiry', subcategories: ['Hours/location','Product info','Other'] }
     ]),
-    customStatuses: JSON.stringify([])  // [{name, color}] — admin-defined agent-selectable "away" statuses
+    customStatuses: JSON.stringify([]),  // [{name, color}] — admin-defined agent-selectable "away" statuses
+    emailTriggers: JSON.stringify([]),   // [{category, subcategory, recipients}]
+    eodRecipients: ''                    // comma-separated addresses for the EOD summary
   };
   rows.forEach(r => {
     if (!r[0]) return;
@@ -558,6 +703,7 @@ async function getGlobalSettings() {
     else if (v === 'false' || v === false) v = false;
     settings[r[0]] = v;
   });
+  _globalSettingsCache = settings;
   return settings;
 }
 
@@ -726,6 +872,8 @@ export default async function handler(req, res) {
       case 'getDispositions':           data = await getDispositions(params.limit); break;
       case 'archiveData':               data = await archiveData(params.from, params.to, params.deleteAfter); break;
       case 'archiveDiagnostics':        data = await archiveDiagnostics(process.env.ARCHIVE_FOLDER_ID || '19uC54HePEp9ij2DukfwX3YSJCPeZcBCW'); break;
+      case 'sendEODReport':             data = await sendEODReport(params.date, params.recipients); break;
+      case 'sendTestEmail':             data = await sendTestEmail(params.recipients); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
       case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
