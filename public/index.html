@@ -420,7 +420,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     </div>
 
     <!-- Aircall display preference -->
-    <div style="border-top:1px solid #e2e6ea;padding-top:16px;margin-top:16px">
+    <div id="prof-aircall-section" style="border-top:1px solid #e2e6ea;padding-top:16px;margin-top:16px">
       <p style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:8px">📞 Aircall workspace display</p>
       <p style="font-size:11px;color:#6b7280;margin-bottom:12px">Choose whether you want to see the embedded Aircall workspace.</p>
       <div class="m-form-row">
@@ -700,6 +700,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       </div>
       <button class="btn btn-ghost btn-sm" onclick="manualRefreshAdmin()">↻ Refresh all</button>
       <button class="btn btn-ghost btn-sm" id="adm-pause-btn" onclick="toggleSyncPause('admin')">⏸ Pause</button>
+      <button class="btn btn-ghost btn-sm" onclick="openProfile()">⚙️ Profile</button>
       <div class="avatar admin-av" id="adm-avatar"></div>
       <button class="btn btn-ghost btn-sm" onclick="doLogout()">Sign out</button>
     </div>
@@ -3938,17 +3939,22 @@ function openProfile(){
   document.getElementById('prof-sq').value='';
   ['prof-pass-err','prof-pass-ok','prof-sq-err','prof-sq-ok','prof-aircall-err','prof-aircall-ok'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
 
-  // Initialize Aircall preference radio buttons
-  var pref = (currentUser && currentUser.aircallPref) || '';
-  document.getElementById('prof-aircall-global').checked = (pref === '');
-  document.getElementById('prof-aircall-show').checked   = (pref === 'show');
-  document.getElementById('prof-aircall-hide').checked   = (pref === 'hide');
+  // Aircall preference is agent-only — hide that section for admins
+  var isAdmin = currentUser && currentUser.role === 'admin';
+  var airSection = document.getElementById('prof-aircall-section');
+  if(airSection) airSection.style.display = isAdmin ? 'none' : '';
 
-  // Show what global setting currently is
-  var globalDetail = document.getElementById('prof-aircall-global-detail');
-  if(globalDetail){
-    var globalState = globalSettings.showAircall !== false ? 'Enabled' : 'Disabled';
-    globalDetail.textContent = 'Follow the admin\'s setting (currently: ' + globalState + ')';
+  if(!isAdmin){
+    // Initialize Aircall preference radio buttons (agents only)
+    var pref = (currentUser && currentUser.aircallPref) || '';
+    document.getElementById('prof-aircall-global').checked = (pref === '');
+    document.getElementById('prof-aircall-show').checked   = (pref === 'show');
+    document.getElementById('prof-aircall-hide').checked   = (pref === 'hide');
+    var globalDetail = document.getElementById('prof-aircall-global-detail');
+    if(globalDetail){
+      var globalState = globalSettings.showAircall !== false ? 'Enabled' : 'Disabled';
+      globalDetail.textContent = 'Follow the admin\'s setting (currently: ' + globalState + ')';
+    }
   }
 
   document.getElementById('profile-modal').classList.add('active');
