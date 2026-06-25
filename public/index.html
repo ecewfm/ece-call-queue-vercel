@@ -1126,7 +1126,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     <div id="tab-accounts" class="adm-tab" style="display:none">
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-          <div class="card-title" style="margin:0;flex:1">👥 Agent accounts</div>
+          <div class="card-title" style="margin:0;flex:1">👥 Accounts</div>
           <button class="btn btn-ghost btn-sm" onclick="openBulk()">📤 Bulk upload</button>
           <button class="btn btn-primary btn-sm" onclick="openAddAgent()">+ Add agent</button>
         </div>
@@ -3588,17 +3588,29 @@ function adminEndCall(id){
 // ── Agent accounts ───────────────────────────────────────────────────────────
 function renderAdminAgentTable(){
   var c=document.getElementById('adm-agent-table');c.innerHTML='';
-  var ag=allAgents.filter(function(a){return a.role==='agent';});
-  if(!ag.length){c.innerHTML='<div class="empty-state">No agents yet.</div>';return;}
+  // Show all accounts — agents and admins. Sort agents first, then admins, each alphabetical.
+  var all=allAgents.slice().sort(function(a,b){
+    if(a.role!==b.role) return a.role==='agent'?-1:1;
+    return (a.name||'').localeCompare(b.name||'');
+  });
+  if(!all.length){c.innerHTML='<div class="empty-state">No accounts yet.</div>';return;}
   var frag=document.createDocumentFragment();
-  ag.forEach(function(a){
+  all.forEach(function(a){
+    var isAdmin = a.role==='admin';
+    var roleBadge = isAdmin
+      ? '<span class="badge" style="background:#ede9fe;color:#6d28d9;border-color:#c4b5fd">Admin</span>'
+      : '<span class="badge b-agent">Agent</span>';
+    // Admins don't carry an AUX status — show a dash
+    var statusCell = isAdmin
+      ? '<span style="color:#94a3b8;font-size:12px">—</span>'
+      : '<span class="badge '+statusBadgeClass(a.status)+'" style="'+statusBadgeStyle(a.status)+'">'+a.status+'</span>';
     var div=document.createElement('div');div.className='agent-tbl-row';
     div.innerHTML='<span style="display:flex;align-items:center;gap:8px">'
-      +'<div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
+      +'<div class="avatar'+(isAdmin?' admin-av':'')+'" style="width:28px;height:28px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
       +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
       +'<span style="font-size:12px;color:#6b7280">'+a.username+'</span>'
-      +'<span><span class="badge b-agent">Agent</span></span>'
-      +'<span><span class="badge '+statusBadgeClass(a.status)+'" style="'+statusBadgeStyle(a.status)+'">'+a.status+'</span></span>'
+      +'<span>'+roleBadge+'</span>'
+      +'<span>'+statusCell+'</span>'
       +'<span style="display:flex;gap:5px">'
       +'<button class="btn btn-ghost btn-sm" onclick="openEditAgent(\''+a.id+'\')">✏ Edit</button>'
       +'<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5" onclick="confirmDelete(\''+a.id+'\',\''+a.name.replace(/'/g,"\\'")+'\')" >🗑</button>'
