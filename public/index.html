@@ -2845,6 +2845,8 @@ function confirmDismiss() {
 // ── Live incoming-call state ─────────────────────────────────────────────────
 var _incomingCheckBusy = false;    // prevents overlapping getIncomingCalls calls
 var _currentIncomingCallId = null; // the call the popup is currently tied to
+var _lastIncomingCheckAt = 0;      // throttle: last time we asked the backend
+var INCOMING_CHECK_MS = 9000;      // check for a live call at most every ~9s
 
 // ── Called from renderAgentView — checks if alert should fire ────────────────
 // The popup fires only when BOTH are true:
@@ -2867,8 +2869,12 @@ function checkCallAlert() {
   // We ARE #1. Only fire if we haven't already, and no popup is showing.
   if(_wasAtTop || _alertShowing) return;
 
-  // Ask the backend whether a real ECE call is live right now.
+  // Ask the backend whether a real ECE call is live right now — throttled so we
+  // don't add a Sheets read on every 3s poll (protects the API quota).
   if(_incomingCheckBusy) return;
+  var _nowMs = Date.now();
+  if(_nowMs - _lastIncomingCheckAt < INCOMING_CHECK_MS) return;
+  _lastIncomingCheckAt = _nowMs;
   _incomingCheckBusy = true;
 
   google.script.run
