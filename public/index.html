@@ -1082,6 +1082,50 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         <button class="btn btn-primary" onclick="saveEodRecipients()">💾 Save EOD recipients</button>
 
         <div style="border-top:1px solid #e2e6ea;margin:16px 0 12px"></div>
+        <div style="font-size:13px;font-weight:700;color:#1d2b23;margin-bottom:6px">⏰ Automatic EOD schedule</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Send the EOD report automatically. Times are <strong>New York time (ET, adjusts for daylight saving)</strong>. Sends to the recipients above.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Frequency</label>
+            <select id="eod-freq" onchange="onEodFreqChange()" style="font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px">
+              <option value="off">Off</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Time (ET)</label>
+            <select id="eod-hour" style="font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"></select>
+          </div>
+          <div id="eod-dow-wrap" style="display:none">
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Day of week</label>
+            <select id="eod-dow" style="font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px">
+              <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+              <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option>
+            </select>
+          </div>
+          <div id="eod-dom-wrap" style="display:none">
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Day of month</label>
+            <select id="eod-dom" style="font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"></select>
+          </div>
+          <button class="btn btn-primary" onclick="saveEodSchedule()">💾 Save schedule</button>
+        </div>
+        <p id="eod-sched-summary" style="font-size:11px;color:#4c6a63;margin-top:8px"></p>
+
+        <div style="border-top:1px solid #e2e6ea;margin:16px 0 12px"></div>
+        <div style="font-size:13px;font-weight:700;color:#1d2b23;margin-bottom:6px">📨 Send EOD manually</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Send the report on demand for any date (defaults to today).</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Report date</label>
+            <input type="date" id="eod-manual-date" style="font-size:13px;padding:6px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <button class="btn btn-primary" onclick="sendEodManual()">📨 Send EOD now</button>
+        </div>
+        <div id="eod-manual-status" style="font-size:12px;margin-top:10px"></div>
+
+        <div style="border-top:1px solid #e2e6ea;margin:16px 0 12px"></div>
         <div style="font-size:13px;font-weight:700;color:#1d2b23;margin-bottom:6px">🔔 Test email</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
           <input type="text" id="email-test-to" placeholder="your@email.com" style="flex:1;min-width:200px;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
@@ -2402,6 +2446,98 @@ function loadEmailSettingsEditor(){
   renderEmailTriggerList();
   var eod = document.getElementById('eod-recipients');
   if(eod) eod.value = globalSettings.eodRecipients || '';
+  populateEodScheduleUI();
+}
+// ── EOD schedule + manual send ────────────────────────────────────────────────
+function _eodSched(){
+  try { return JSON.parse(globalSettings.eodSchedule || '{}') || {}; }
+  catch(e){ return {}; }
+}
+function buildHourOptions(sel, chosen){
+  if(!sel) return;
+  sel.innerHTML='';
+  for(var h=0; h<24; h++){
+    var label = (h===0?'12 AM':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM');
+    var o=document.createElement('option'); o.value=h; o.textContent=label + ' ('+(h<10?'0':'')+h+':00)';
+    if(h===chosen) o.selected=true;
+    sel.appendChild(o);
+  }
+}
+function buildDomOptions(sel, chosen){
+  if(!sel) return;
+  sel.innerHTML='';
+  for(var d=1; d<=28; d++){
+    var o=document.createElement('option'); o.value=d; o.textContent=d;
+    if(d===chosen) o.selected=true;
+    sel.appendChild(o);
+  }
+  // Note: cap at 28 so monthly always has a valid day in every month.
+}
+function onEodFreqChange(){
+  var f = document.getElementById('eod-freq').value;
+  document.getElementById('eod-dow-wrap').style.display = (f==='weekly')?'':'none';
+  document.getElementById('eod-dom-wrap').style.display = (f==='monthly')?'':'none';
+}
+function populateEodScheduleUI(){
+  var s = _eodSched();
+  var freq = document.getElementById('eod-freq');
+  if(!freq) return;
+  freq.value = s.frequency || 'off';
+  buildHourOptions(document.getElementById('eod-hour'), Number.isInteger(s.hour)?s.hour:18);
+  var dow = document.getElementById('eod-dow'); if(dow) dow.value = Number.isInteger(s.dayOfWeek)?s.dayOfWeek:5;
+  buildDomOptions(document.getElementById('eod-dom'), Number.isInteger(s.dayOfMonth)?s.dayOfMonth:1);
+  onEodFreqChange();
+  renderEodScheduleSummary();
+  // Default the manual date picker to today.
+  var md = document.getElementById('eod-manual-date');
+  if(md && !md.value){ var d=new Date(); var p=function(n){return (n<10?'0':'')+n;}; md.value = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+}
+function renderEodScheduleSummary(){
+  var el=document.getElementById('eod-sched-summary'); if(!el) return;
+  var s=_eodSched();
+  if(!s.frequency || s.frequency==='off'){ el.textContent='Automatic sending is off.'; return; }
+  var hr = Number.isInteger(s.hour)?s.hour:18;
+  var hrLabel = (hr===0?'12 AM':hr<12?hr+' AM':hr===12?'12 PM':(hr-12)+' PM');
+  var days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var txt='Sends ';
+  if(s.frequency==='daily') txt+='every day';
+  else if(s.frequency==='weekly') txt+='every '+days[Number.isInteger(s.dayOfWeek)?s.dayOfWeek:5];
+  else if(s.frequency==='monthly') txt+='on day '+(Number.isInteger(s.dayOfMonth)?s.dayOfMonth:1)+' of each month';
+  txt+=' at '+hrLabel+' New York time.';
+  el.textContent='✓ '+txt;
+}
+function saveEodSchedule(){
+  var sched = {
+    frequency: document.getElementById('eod-freq').value,
+    hour: parseInt(document.getElementById('eod-hour').value,10),
+    dayOfWeek: parseInt(document.getElementById('eod-dow').value,10),
+    dayOfMonth: parseInt(document.getElementById('eod-dom').value,10)
+  };
+  var payload = JSON.stringify(sched);
+  google.script.run
+    .withSuccessHandler(function(s){
+      globalSettings = s || globalSettings;
+      globalSettings.eodSchedule = payload;
+      renderEodScheduleSummary();
+      toast('EOD schedule saved','success');
+    })
+    .withFailureHandler(function(e){ toast('Save failed: '+(e&&e.message||e),'error'); })
+    .saveGlobalSettings({ eodSchedule: payload });
+}
+function sendEodManual(){
+  var date = (document.getElementById('eod-manual-date').value||'').trim();
+  var statusEl = document.getElementById('eod-manual-status');
+  statusEl.style.color='#6b7280'; statusEl.textContent='Sending EOD report…';
+  google.script.run
+    .withSuccessHandler(function(r){
+      statusEl.style.color='#15803d';
+      statusEl.textContent='✓ Sent to '+((r&&r.sentTo||[]).join(', '))+' — '+(r&&r.count||0)+' record(s) for '+((r&&r.date)||date||'today')+'.';
+    })
+    .withFailureHandler(function(e){
+      statusEl.style.color='#dc2626';
+      statusEl.textContent='✗ '+(e&&e.message||e);
+    })
+    .sendEODReport(date, '');
 }
 function renderEmailTriggerList(){
   var box = document.getElementById('emailtrig-list');
