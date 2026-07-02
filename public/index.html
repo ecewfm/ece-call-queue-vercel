@@ -1236,7 +1236,8 @@ window.google.script.run = {
   'markCallEnded','finishACW','saveDisposition','getDispositions','archiveData','archiveDiagnostics','sendEODReport','sendTestEmail','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
-  'getLogsByDateRange','getAgentAuxSummary'
+  'getLogsByDateRange','getAgentAuxSummary',
+  'getIncomingCalls','markIncomingCallHandled'
 ].forEach(function(fn){
   window.google.script.run[fn] = function(){
     var args = Array.prototype.slice.call(arguments);
@@ -1279,7 +1280,9 @@ function _mapArgsToParams(fn, args){
     getInitialData:              ['logLimit'],
     getLogs:                     ['limit'],
     getLogsByDateRange:          ['from','to'],
-    getAgentAuxSummary:          ['from','to']
+    getAgentAuxSummary:          ['from','to'],
+    getIncomingCalls:            ['windowSec'],
+    markIncomingCallHandled:     ['callId']
   };
   var keys = maps[fn] || [];
   var p = {};
@@ -2693,6 +2696,10 @@ function showCallAlert() {
   document.getElementById('cal-note').value = '';
   document.getElementById('cal-note-err').style.display = 'none';
   document.getElementById('cal-countdown').style.display = 'none'; // hidden initially
+  try {
+    var _t = document.getElementById('cal-title-text');
+    if(_t && _t.textContent.indexOf('Incoming call') !== 0) _t.textContent = 'Incoming call';
+  } catch(e){}
   document.getElementById('call-alert-modal').classList.add('active');
   playAlertChime();
 
@@ -2835,21 +2842,71 @@ function confirmDismiss() {
     .logCallAvoidance(currentUser.id, note);
 }
 
+// ── Live incoming-call state ─────────────────────────────────────────────────
+var _incomingCheckBusy = false;    // prevents overlapping getIncomingCalls calls
+var _currentIncomingCallId = null; // the call the popup is currently tied to
+
 // ── Called from renderAgentView — checks if alert should fire ────────────────
+// The popup fires only when BOTH are true:
+//   (1) you are #1 in the queue, AND
+//   (2) a real, recent, unhandled ECE call exists in IncomingCalls
+//       (Berman Abogado lines are excluded server-side).
 function checkCallAlert() {
   if(!currentUser || currentUser.role !== 'agent') return;
   var q    = getQueue();
   var isMe = q.length > 0 && String(q[0].id) === String(currentUser.id);
 
-  if(isMe && !_wasAtTop && !_alertShowing) {
-    // Just reached #1 — fire alert
-    _wasAtTop = true;
-    showCallAlert();
-  } else if(!isMe) {
-    // No longer #1 (e.g. admin moved someone else) — reset flag
+  if(!isMe) {
+    // Not #1 — no popup. Reset so it can fire again when we return to #1.
     _wasAtTop = false;
+    _currentIncomingCallId = null;
     if(_alertShowing) hideCallAlert();
+    return;
   }
+
+  // We ARE #1. Only fire if we haven't already, and no popup is showing.
+  if(_wasAtTop || _alertShowing) return;
+
+  // Ask the backend whether a real ECE call is live right now.
+  if(_incomingCheckBusy) return;
+  _incomingCheckBusy = true;
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      _incomingCheckBusy = false;
+      // Guard: we might have dropped from #1 while the request was in flight.
+      var q2 = getQueue();
+      var stillMe = q2.length > 0 && String(q2[0].id) === String(currentUser.id);
+      if(!stillMe || _wasAtTop || _alertShowing) return;
+
+      if(res && res.call && res.call.callId) {
+        // A real ECE call is here — fire the popup and tie it to this call.
+        _wasAtTop = true;
+        _currentIncomingCallId = res.call.callId;
+
+        // Mark it handled immediately so it can't fire for anyone else or twice.
+        google.script.run
+          .withSuccessHandler(function(){})
+          .withFailureHandler(function(){})
+          .markIncomingCallHandled(res.call.callId);
+
+        // Show which line/number is calling in the popup title.
+        try {
+          var titleEl = document.getElementById('cal-title-text');
+          if(titleEl && res.call.lineName){
+            titleEl.textContent = 'Incoming call — ' + res.call.lineName;
+          }
+        } catch(e){}
+
+        showCallAlert();
+      }
+      // If no real call, stay silent at #1 until one lands.
+    })
+    .withFailureHandler(function(){
+      _incomingCheckBusy = false;
+      // On error, do NOT fire — better a missed popup than a phantom one.
+    })
+    .getIncomingCalls(90);  // look back 90 seconds
 }
 // UNLOCKED when: agent is Available AND #1 in queue, OR any non-Available status
 // LOCKED when:   agent is Available AND position #2 or lower
