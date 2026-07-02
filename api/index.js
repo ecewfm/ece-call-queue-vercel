@@ -824,6 +824,86 @@ async function getInitialData(logLimit) {
   };
 }
 
+// ── Incoming calls (Aircall webhook feed) ─────────────────────────────────────
+// IncomingCalls tab columns (must match api/webhook.js HEADER):
+//  A ReceivedAt | B CallId | C Direction | D CallerNumber | E AircallLineId
+//  F AircallLineName | G AircallLineDigits | H Status | I EventTimestamp | J Handled
+const INCOMING_TAB = 'IncomingCalls';
+
+// Lines whose NAME contains any of these (case-insensitive) are NOT ECE calls
+// and must never trigger the agent popup. "Berman Abogado(s)" is a different
+// team sharing the same Aircall account. Add more markers here if needed.
+const NON_ECE_LINE_MARKERS = ['berman abogado'];
+
+function isEceLine(lineName) {
+  const n = String(lineName || '').toLowerCase();
+  return !NON_ECE_LINE_MARKERS.some(marker => n.includes(marker));
+}
+
+// Returns the most recent UNHANDLED, RECENT, ECE incoming call (or null).
+async function getIncomingCalls(windowSec) {
+  const win = parseInt(windowSec) > 0 ? parseInt(windowSec) : 90;
+  let rows;
+  try {
+    rows = await readRange(`${INCOMING_TAB}!A2:J`);
+  } catch (e) {
+    return { call: null, count: 0 };
+  }
+  if (!rows || !rows.length) return { call: null, count: 0 };
+
+  const cutoffMs = Date.now() - win * 1000;
+  const fresh = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const receivedAt = r[0];
+    const callId     = r[1];
+    const direction  = r[2];
+    const caller     = r[3];
+    const lineName   = r[5];
+    const status     = r[7];
+    const handled    = r[9];
+
+    if (handled) continue;
+    if (!callId) continue;
+    if (direction && String(direction) !== 'inbound') continue;
+    if (!isEceLine(lineName)) continue;
+
+    const t = Date.parse(receivedAt);
+    if (isNaN(t) || t < cutoffMs) continue;
+
+    fresh.push({
+      callId: String(callId),
+      caller: String(caller || ''),
+      lineName: String(lineName || ''),
+      status: String(status || ''),
+      receivedAt: receivedAt,
+      _t: t,
+    });
+  }
+  if (!fresh.length) return { call: null, count: 0 };
+
+  fresh.sort((a, b) => b._t - a._t);
+  const top = fresh[0];
+  delete top._t;
+  return { call: top, count: fresh.length };
+}
+
+// Marks a specific IncomingCalls row (by CallId) as handled. Idempotent.
+async function markIncomingCallHandled(callId) {
+  if (!callId) return { ok: false, reason: 'no callId' };
+  const ids = await readRange(`${INCOMING_TAB}!B2:B`);
+  let rowNum = -1;
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i] && String(ids[i][0]) === String(callId)) {
+      rowNum = i + 2;
+      break;
+    }
+  }
+  if (rowNum === -1) return { ok: false, reason: 'callId not found' };
+  await writeRange(`${INCOMING_TAB}!J${rowNum}`, [['yes']]);
+  return { ok: true, callId: String(callId), row: rowNum };
+}
+
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
@@ -889,6 +969,8 @@ export default async function handler(req, res) {
       case 'getLogs':                   data = await getLogs(params.limit); break;
       case 'getLogsByDateRange':        data = await getLogsByDateRange(params.from, params.to); break;
       case 'getAgentAuxSummary':        data = await getAgentAuxSummary(params.from, params.to); break;
+      case 'getIncomingCalls':          data = await getIncomingCalls(params.windowSec); break;
+      case 'markIncomingCallHandled':   data = await markIncomingCallHandled(params.callId); break;
       default:
         res.status(400).json({ error: 'Unknown function: ' + fn });
         return;
