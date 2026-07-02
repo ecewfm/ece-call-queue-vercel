@@ -405,6 +405,84 @@ async function sendEODReport(dateStr, recipientsOverride) {
   return { success: true, date: target, count: rows.length, sentTo: recips, id: res.id };
 }
 
+// ── Scheduled EOD (driven by Vercel Cron, hourly) ─────────────────────────────
+// The schedule is stored in Settings under key `eodSchedule` as JSON:
+//   { frequency: 'off'|'daily'|'weekly'|'monthly',
+//     hour: 0-23,            // hour in America/New_York (EST/EDT, DST-aware)
+//     dayOfWeek: 0-6,        // 0=Sun … 6=Sat (weekly only)
+//     dayOfMonth: 1-31 }     // (monthly only)
+// A guard key `eodLastSentDate` (a New-York YYYY-MM-DD) prevents double-sends.
+//
+// This is called by the cron endpoint (api/cron-eod.js) once per hour. It decides
+// whether a send is due *right now* in New York time, and if so sends the EOD for
+// "today" (New York date) and records the guard.
+
+// Return New York (America/New_York) date parts for a given Date — DST-aware.
+function nyParts(d) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short'
+  });
+  const p = {};
+  for (const part of fmt.formatToParts(d)) p[part.type] = part.value;
+  const wkmap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  return {
+    date: p.year + '-' + p.month + '-' + p.day,   // YYYY-MM-DD (NY)
+    hour: parseInt(p.hour, 10),                    // 0-23 (NY)
+    dayOfWeek: wkmap[p.weekday],                   // 0-6
+    dayOfMonth: parseInt(p.day, 10),               // 1-31
+  };
+}
+
+async function checkAndSendScheduledEOD() {
+  const settings = await getGlobalSettings();
+
+  let sched;
+  try { sched = JSON.parse(settings.eodSchedule || '{}'); }
+  catch (e) { sched = {}; }
+
+  const freq = (sched.frequency || 'off').toLowerCase();
+  if (freq === 'off' || !freq) {
+    return { ran: false, reason: 'schedule off' };
+  }
+
+  const now = nyParts(new Date());
+  const wantHour = Number.isInteger(sched.hour) ? sched.hour : 18; // default 6 PM NY
+
+  // Is this the right hour?
+  if (now.hour !== wantHour) {
+    return { ran: false, reason: `not the hour (now ${now.hour}, want ${wantHour} NY)` };
+  }
+
+  // Is this the right day for the frequency?
+  if (freq === 'weekly') {
+    const wantDow = Number.isInteger(sched.dayOfWeek) ? sched.dayOfWeek : 5; // default Fri
+    if (now.dayOfWeek !== wantDow) return { ran: false, reason: 'not the weekday' };
+  } else if (freq === 'monthly') {
+    const wantDom = Number.isInteger(sched.dayOfMonth) ? sched.dayOfMonth : 1;
+    if (now.dayOfMonth !== wantDom) return { ran: false, reason: 'not the day of month' };
+  } // daily: any day at the hour
+
+  // Duplicate guard — already sent for this NY date?
+  if (settings.eodLastSentDate === now.date) {
+    return { ran: false, reason: 'already sent today', date: now.date };
+  }
+
+  // Send the EOD for today's NY date, then record the guard.
+  // Wrapped so a config problem (e.g. no recipients) doesn't make the hourly
+  // cron throw every run — it just reports the reason.
+  let result;
+  try {
+    result = await sendEODReport(now.date);
+  } catch (e) {
+    return { ran: false, reason: 'send failed: ' + (e && e.message), date: now.date };
+  }
+  await saveGlobalSettings({ eodLastSentDate: now.date });
+
+  return { ran: true, date: now.date, count: result.count, sentTo: result.sentTo, frequency: freq };
+}
+
 // Test the email path (sends a simple test email to provided or EOD recipients).
 async function sendTestEmail(recipients) {
   const to = (recipients || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
@@ -725,7 +803,9 @@ async function getGlobalSettings() {
     ]),
     customStatuses: JSON.stringify([]),  // [{name, color}] — admin-defined agent-selectable "away" statuses
     emailTriggers: JSON.stringify([]),   // [{category, subcategory, recipients}]
-    eodRecipients: ''                    // comma-separated addresses for the EOD summary
+    eodRecipients: '',                   // comma-separated addresses for the EOD summary
+    eodSchedule: JSON.stringify({ frequency: 'off', hour: 18, dayOfWeek: 5, dayOfMonth: 1 }), // auto-EOD schedule (New York time)
+    eodLastSentDate: ''                  // guard: last NY date an auto-EOD was sent
   };
   rows.forEach(r => {
     if (!r[0]) return;
@@ -1003,6 +1083,7 @@ export default async function handler(req, res) {
       case 'archiveData':               data = await archiveData(params.from, params.to, params.deleteAfter); break;
       case 'archiveDiagnostics':        data = await archiveDiagnostics(process.env.ARCHIVE_FOLDER_ID || '19uC54HePEp9ij2DukfwX3YSJCPeZcBCW'); break;
       case 'sendEODReport':             data = await sendEODReport(params.date, params.recipients); break;
+      case 'checkAndSendScheduledEOD':  data = await checkAndSendScheduledEOD(); break;
       case 'sendTestEmail':             data = await sendTestEmail(params.recipients); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
@@ -1032,3 +1113,7 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message || 'Internal error' });
   }
 }
+
+// Named export so the Vercel Cron endpoint (api/cron-eod.js) can run the
+// scheduled-EOD check directly, without a self-HTTP call.
+export { checkAndSendScheduledEOD };
