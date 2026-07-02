@@ -4,5 +4,8 @@
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/", "destination": "/public/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron-eod", "schedule": "0 * * * *" }
   ]
 }
