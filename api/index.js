@@ -34,8 +34,26 @@ async function logEvent(agentId, agentName, event, fromStatus, toStatus, ts, dur
 
 // ── Get all agents (returns objects) ──────────────────────────────────────────
 
-async function getAllAgents() {
-  const rows = await readRange('Agents!A2:N');
+// ── Agents read cache ─────────────────────────────────────────────────────────
+// The agent list is by far the most-polled read (every agent + admin, every ~3s).
+// At 15-30 agents that alone can exceed Google's Sheets read quota. This cache
+// serves the SAME agent snapshot to everyone within a short TTL, collapsing many
+// concurrent reads into ONE Sheets fetch. Any write that changes agent state
+// calls invalidateAgentsCache() so data never goes stale after an action.
+//
+// NOTE: Vercel serverless instances don't share memory, so this helps within a
+// warm instance (which, under constant polling, is the common case). It reduces
+// reads substantially but is not a hard guarantee across all instances.
+let _agentsCache = null;      // parsed agent objects
+let _agentsCacheAt = 0;       // epoch ms when cached
+const AGENTS_CACHE_TTL_MS = 2500;  // ~2.5s: shorter than the 3s poll interval
+
+function invalidateAgentsCache() {
+  _agentsCache = null;
+  _agentsCacheAt = 0;
+}
+
+function parseAgentRows(rows) {
   return rows.filter(r => r[0]).map(r => ({
     id: r[0],
     name: r[1],
@@ -50,6 +68,19 @@ async function getAllAgents() {
     securityQuestion: r[11] || '',
     aircallPref: r[13] || ''  // column N: '', 'show', or 'hide'
   }));
+}
+
+async function getAllAgents(opts) {
+  const forceFresh = opts && opts.fresh;
+  const now = Date.now();
+  if (!forceFresh && _agentsCache && (now - _agentsCacheAt) < AGENTS_CACHE_TTL_MS) {
+    return _agentsCache;  // cache hit — no Sheets read
+  }
+  const rows = await readRange('Agents!A2:N');
+  const parsed = parseAgentRows(rows);
+  _agentsCache = parsed;
+  _agentsCacheAt = Date.now();
+  return parsed;
 }
 
 // Get raw rows (for updates)
@@ -170,7 +201,7 @@ async function resetPasswordWithSecurity(username, secA, newPass) {
 
 async function setMyStatus(agentId, newStatus, callerRole) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const oldStatus = agentRow[5];
   const now = nowDate();
@@ -178,25 +209,25 @@ async function setMyStatus(agentId, newStatus, callerRole) {
   await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
   await logEvent(agentId, agentRow[1], 'AUX Change', oldStatus, newStatus, now, 0, callerRole === 'admin' ? 'Admin override' : '');
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function markCallReceived(agentId, callerRole) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
-  if (agentRow[5] !== 'Available') return await getAllAgents();
+  if (agentRow[5] !== 'Available') return await getAllAgents({ fresh: true });
   const now = nowDate();
   await writeRange(`Agents!F${rowNum}:H${rowNum}`, [['On Call', '', now.toISOString()]]);
   await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
   await logEvent(agentId, agentRow[1], 'Call Received', 'Available', 'On Call', now, 0, callerRole === 'admin' ? 'Marked by admin' : '');
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function markCallEnded(agentId, callerRole, callerDropped) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const callStart = agentRow[7];
   const now = nowDate();
@@ -209,15 +240,15 @@ async function markCallEnded(agentId, callerRole, callerDropped) {
   const note = callerDropped ? '📵 Caller dropped — entering ACW' : (callerRole === 'admin' ? 'Ended by admin — ACW' : 'Entering ACW');
   await logEvent(agentId, agentRow[1], evt, 'On Call', 'ACW', now, durSec, note);
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 // Called when agent finishes ACW (manually or auto via timer)
 async function finishACW(agentId, expired) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
-  if (agentRow[5] !== 'ACW') return await getAllAgents(); // not in ACW, ignore
+  if (agentRow[5] !== 'ACW') return await getAllAgents({ fresh: true }); // not in ACW, ignore
   const now = nowDate();
   const acwStart = agentRow[9];
   const acwSec = acwStart ? Math.round((now - new Date(acwStart)) / 1000) : 0;
@@ -226,7 +257,7 @@ async function finishACW(agentId, expired) {
   const note = expired ? `⚑ ACW expired after ${acwSec}s — auto-returned (no disposition)` : `ACW complete (${acwSec}s)`;
   await logEvent(agentId, agentRow[1], 'ACW Complete', 'ACW', 'Available', now, acwSec, note);
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 // Save a disposition record (to Dispositions sheet + log reference)
@@ -509,7 +540,7 @@ async function archiveData(fromStr, toStr, deleteAfter) {
 
 async function logCallAvoidance(agentId, note) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const now = nowDate();
   // Dismissing a call now sets the agent to Not Available (pulled from the queue).
@@ -518,12 +549,12 @@ async function logCallAvoidance(agentId, note) {
   await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
   await logEvent(agentId, agentRow[1], 'Call Avoidance', 'Available', 'Not Available', now, 0, '⚑ ' + (note || 'No reason provided'));
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function logMissedCall(agentId, secondsElapsed) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   const now = nowDate();
   // Set agent to Not Available, clear queue join
@@ -532,7 +563,7 @@ async function logMissedCall(agentId, secondsElapsed) {
   await logEvent(agentId, agentRow[1], 'Missed Call', 'Available', 'Not Available', now, 0,
     `⚑ Auto-skipped after ${secondsElapsed || '?'}s — no response`);
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 // ── QUEUE ─────────────────────────────────────────────────────────────────────
@@ -570,12 +601,12 @@ async function createAgent(name, username, password, role) {
     !isDefault, '', ''
   ]);
   await logEvent(Date.now(), name, 'Account Created', '', role, now, 0, '');
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function updateAgent(agentId, name, username, password, role) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   await writeRange(`Agents!B${rowNum}:C${rowNum}`, [[name, username]]);
   await writeRange(`Agents!E${rowNum}`, [[role]]);
   if (password) {
@@ -583,12 +614,12 @@ async function updateAgent(agentId, name, username, password, role) {
     if (password === 'admin123') await writeRange(`Agents!K${rowNum}`, [[false]]);
   }
   await logEvent(agentId, name, 'Account Updated', '', '', nowDate(), 0, '');
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function deleteAgent(agentId) {
   const rowNum = await getAgentRowIndex(agentId);
-  if (!rowNum) return await getAllAgents();
+  if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   await logEvent(agentId, agentRow[1], 'Account Deleted', '', '', nowDate(), 0, '');
   // Delete the row using batchUpdate
@@ -605,7 +636,7 @@ async function deleteAgent(agentId) {
       }]
     }
   });
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function bulkSetStatus(agentIds, newStatus) {
@@ -635,7 +666,7 @@ async function bulkSetStatus(agentIds, newStatus) {
     await logEvent(0, 'SYSTEM', 'Bulk AUX Change', '', newStatus, now, 0, `${updated} agents → ${newStatus} (admin override)`);
   }
   await recalculateQueue();
-  return await getAllAgents();
+  return await getAllAgents({ fresh: true });
 }
 
 async function bulkCreateAgents(newRows) {
@@ -661,7 +692,7 @@ async function bulkCreateAgents(newRows) {
   if (toAdd.length > 0) {
     await logEvent(0, 'SYSTEM', 'Bulk Upload', '', '', now, 0, `${toAdd.length} agents created`);
   }
-  return { created: toAdd.length, errors, agents: await getAllAgents() };
+  return { created: toAdd.length, errors, agents: await getAllAgents({ fresh: true }) };
 }
 
 // ── GLOBAL SETTINGS ───────────────────────────────────────────────────────────
@@ -843,9 +874,17 @@ function isEceLine(lineName) {
 // Returns the most recent UNHANDLED, RECENT, ECE incoming call (or null).
 async function getIncomingCalls(windowSec) {
   const win = parseInt(windowSec) > 0 ? parseInt(windowSec) : 90;
+  // Read only the LAST ~50 rows, not the whole (large, fast-growing) tab.
+  // The live call is always near the bottom, so we find the current row count
+  // first (cheap, single column) and read only the tail.
   let rows;
   try {
-    rows = await readRange(`${INCOMING_TAB}!A2:J`);
+    const colB = await readRange(`${INCOMING_TAB}!B2:B`);   // CallId column = row count
+    const total = (colB && colB.length) || 0;
+    if (total === 0) return { call: null, count: 0 };
+    const TAIL = 50;
+    const startRow = Math.max(2, total - TAIL + 2);          // +2: header is row 1
+    rows = await readRange(`${INCOMING_TAB}!A${startRow}:J`);
   } catch (e) {
     return { call: null, count: 0 };
   }
@@ -935,6 +974,17 @@ export default async function handler(req, res) {
 
     const fn = params.fn;
     let data;
+
+    // Any state-changing call invalidates the agents cache so the next read is
+    // fresh. Read-only calls (getAllAgents, getInitialData, getIncomingCalls, etc.)
+    // are NOT listed here, so they benefit from the cache.
+    const MUTATING_FNS = new Set([
+      'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
+      'resetPasswordWithSecurity','setMyStatus','markCallReceived','markCallEnded',
+      'finishACW','logCallAvoidance','logMissedCall','createAgent','updateAgent',
+      'deleteAgent','bulkSetStatus','bulkCreateAgents','setAircallPref'
+    ]);
+    if (MUTATING_FNS.has(fn)) invalidateAgentsCache();
 
     switch (fn) {
       case 'login':                     data = await login(params.username, params.password); break;
