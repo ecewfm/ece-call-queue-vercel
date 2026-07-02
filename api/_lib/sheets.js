@@ -64,6 +64,18 @@ export async function uploadCSVToDrive(folderId, filename, csvString) {
 // Sends as GMAIL_SENDER (a real Workspace user the service account is delegated to).
 // Requires: Gmail API enabled on the project, and domain-wide delegation configured
 // in the Workspace Admin console for scope gmail.send.
+// Encode an email header value (e.g. Subject) as a MIME "encoded-word" when it
+// contains non-ASCII characters. Without this, characters like the em-dash "—"
+// get mangled into sequences like "Ã¢Â€Â°" in the subject line. ASCII-only
+// subjects are returned unchanged.
+function encodeEmailHeader(value) {
+  const s = String(value == null ? '' : value);
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(s)) return s;           // pure ASCII — no encoding needed
+  const b64 = Buffer.from(s, 'utf8').toString('base64');
+  return '=?UTF-8?B?' + b64 + '?=';
+}
+
 export async function sendGmail(to, subject, htmlBody) {
   const sender = process.env.GMAIL_SENDER;
   if (!sender) throw new Error('GMAIL_SENDER env var not set (the Workspace user to send as).');
@@ -82,7 +94,7 @@ export async function sendGmail(to, subject, htmlBody) {
   const msg =
     'From: ' + sender + '\r\n' +
     'To: ' + recipients + '\r\n' +
-    'Subject: ' + subject + '\r\n' +
+    'Subject: ' + encodeEmailHeader(subject) + '\r\n' +
     'MIME-Version: 1.0\r\n' +
     'Content-Type: text/html; charset=UTF-8\r\n\r\n' +
     htmlBody;
