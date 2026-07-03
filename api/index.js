@@ -373,7 +373,32 @@ async function sendEODReport(dateStr, recipientsOverride) {
   // Filter to the requested local calendar date
   const target = dateStr || (function () { const d = new Date(); const p = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); })();
   const localDate = (iso) => { const d = new Date(iso); if (isNaN(d)) return ''; const p = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); };
-  const rows = all.filter(r => localDate(r.timestamp) === target);
+  let rows = all.filter(r => localDate(r.timestamp) === target);
+
+  // Optional EOD category/subcategory filters (same idea as email triggers).
+  // Stored in Settings key `eodFilters` as JSON: [{category, subcategory}].
+  // A blank subcategory matches ANY subcategory in that category. If NO filters
+  // are configured, the EOD includes everything (the original behavior).
+  let eodFilters = [];
+  try {
+    const raw = settings.eodFilters;
+    const arr = (typeof raw === 'string') ? JSON.parse(raw || '[]') : (raw || []);
+    if (Array.isArray(arr)) eodFilters = arr.filter(f => f && f.category);
+  } catch (e) { eodFilters = []; }
+
+  let filterNote = '';
+  if (eodFilters.length) {
+    const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+    rows = rows.filter(r =>
+      eodFilters.some(f =>
+        norm(f.category) === norm(r.category) &&
+        (!f.subcategory || norm(f.subcategory) === norm(r.subcategory))
+      )
+    );
+    filterNote = ' &nbsp;|&nbsp; <span style="color:#4c6a63">Filtered by: ' +
+      eodFilters.map(f => (f.category + (f.subcategory ? ' › ' + f.subcategory : ' (any)'))).join('; ') +
+      '</span>';
+  }
 
   // Aggregate counts by category › subcategory
   const counts = {};
@@ -401,7 +426,7 @@ async function sendEODReport(dateStr, recipientsOverride) {
   const html =
     '<div style="font-family:Arial,sans-serif;color:#1a1a1a">' +
     '<h2 style="color:#1d2b23;margin:0 0 4px">End-of-Day Disposition Report</h2>' +
-    '<p style="color:#6b7280;margin:0 0 12px">Date: '+target+' &nbsp;|&nbsp; Total dispositions: '+rows.length+'</p>' +
+    '<p style="color:#6b7280;margin:0 0 12px">Date: '+target+' &nbsp;|&nbsp; Total dispositions: '+rows.length+filterNote+'</p>' +
     '<h3 style="color:#4c6a63;margin:14px 0 6px">Summary by category</h3>' +
     '<table style="border-collapse:collapse;font-size:14px"><tr><th style="padding:4px 10px;border:1px solid #e2e6ea;background:#1d2b23;color:#fff;text-align:left">Category › Subcategory</th><th style="padding:4px 10px;border:1px solid #e2e6ea;background:#1d2b23;color:#fff">Count</th></tr>'+summaryRows+'</table>' +
     '<h3 style="color:#4c6a63;margin:18px 0 6px">All dispositions</h3>' +
@@ -824,7 +849,8 @@ async function getGlobalSettings() {
     emailTriggers: JSON.stringify([]),   // [{category, subcategory, recipients}]
     eodRecipients: '',                   // comma-separated addresses for the EOD summary
     eodSchedule: JSON.stringify({ frequency: 'off', hour: 18, dayOfWeek: 5, dayOfMonth: 1 }), // auto-EOD schedule (New York time)
-    eodLastSentDate: ''                  // guard: last NY date an auto-EOD was sent
+    eodLastSentDate: '',                 // guard: last NY date an auto-EOD was sent
+    eodFilters: JSON.stringify([])       // [{category, subcategory}] — empty = EOD includes all
   };
   rows.forEach(r => {
     if (!r[0]) return;
