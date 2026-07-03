@@ -264,17 +264,27 @@ async function finishACW(agentId, expired) {
 async function saveDisposition(d) {
   await ensureDispositionsSheet();
   const now = nowDate();
+  // Phone-number fields can start with "+" (e.g. +1 222...). Google Sheets would
+  // treat a leading "+" or "=" as a FORMULA and show "#ERROR! (Formula parse
+  // error.)". Prefix such values with a leading apostrophe so Sheets stores them
+  // as literal text (the apostrophe is not displayed). Values that don't start
+  // with a formula character are left unchanged.
+  const asText = (v) => {
+    const s = String(v == null ? '' : v);
+    if (s && /^[=+\-@]/.test(s)) return "'" + s;
+    return s;
+  };
   await appendRow('Dispositions', [
     now.toISOString(),
     d.agentId || '',
     d.agentName || '',
-    d.customerNumber || '',
+    asText(d.customerNumber),
     d.customerName || '',
     d.category || '',
     d.subcategory || '',
     d.notes || '',
     d.callDurationSec || 0,
-    d.aircallNumber || ''
+    asText(d.aircallNumber)
   ]);
   // Reference note in the logs
   await logEvent(d.agentId, d.agentName, 'Disposition', '', '', now, d.callDurationSec || 0,
@@ -519,11 +529,20 @@ async function ensureDispositionsSheet() {
 async function getDispositions(limit) {
   await ensureDispositionsSheet();
   const rows = await readRange('Dispositions!A2:J');
+  // A cell that was stored as a bad formula (e.g. a "+1..." phone number) reads
+  // back as a Sheets error like "#ERROR!". Blank those out so the report shows an
+  // empty cell instead of an error. New dispositions no longer hit this (see
+  // saveDisposition), but this protects any rows already broken in the sheet.
+  const clean = (v) => {
+    const s = String(v == null ? '' : v);
+    if (/^#(ERROR!|REF!|NAME\?|VALUE!|DIV\/0!|N\/A|NULL!|NUM!)/.test(s)) return '';
+    return v;
+  };
   const list = rows.filter(r => r[0]).map(r => ({
     timestamp: r[0], agentId: r[1], agentName: r[2],
-    customerNumber: r[3], customerName: r[4],
+    customerNumber: clean(r[3]), customerName: r[4],
     category: r[5], subcategory: r[6], notes: r[7], callDurationSec: r[8],
-    aircallNumber: r[9] || ''
+    aircallNumber: clean(r[9] || '')
   }));
   list.reverse();
   const n = parseInt(limit, 10);
