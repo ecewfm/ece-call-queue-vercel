@@ -903,6 +903,14 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
               <option value="">All agents</option>
             </select>
           </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Cust. number</label>
+            <input type="text" id="disp-rpt-custnum" placeholder="any" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;width:130px"/>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Aircall #</label>
+            <input type="text" id="disp-rpt-aircall" placeholder="any" style="font-size:13px;padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;width:130px"/>
+          </div>
           <button class="btn btn-primary btn-sm" onclick="applyDispositionFilter()">Apply filter</button>
           <button class="btn btn-ghost btn-sm" onclick="resetDispositionFilter()">Reset</button>
         </div>
@@ -1080,6 +1088,24 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
         <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Who receives the EOD disposition summary. Comma-separated.</p>
         <input type="text" id="eod-recipients" placeholder="manager@ececontactcenters.com, wfm@…" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;margin-bottom:8px"/>
         <button class="btn btn-primary" onclick="saveEodRecipients()">💾 Save EOD recipients</button>
+
+        <div style="border-top:1px solid #e2e6ea;margin:16px 0 12px"></div>
+        <div style="font-size:13px;font-weight:700;color:#1d2b23;margin-bottom:6px">🔎 EOD report filters <span style="color:#94a3b8;font-weight:400">(optional)</span></div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:10px">By default the EOD report includes <strong>all</strong> dispositions for the day. Add one or more category/subcategory filters below and the EOD will include <strong>only matching</strong> records. Leave the subcategory blank to match any subcategory in that category. Leave this list empty to keep sending everything.</p>
+        <div id="eodfilter-list" style="margin-bottom:12px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:10px;background:#f8fafc;border-radius:8px;margin-bottom:10px">
+          <div style="min-width:140px">
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Category</label>
+            <input type="text" id="eodfilter-cat" placeholder="e.g. Leads" maxlength="40" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <div style="min-width:140px">
+            <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Subcategory <span style="color:#94a3b8">(optional)</span></label>
+            <input type="text" id="eodfilter-sub" placeholder="blank = any" maxlength="40" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addEodFilter()">+ Add filter</button>
+        </div>
+        <div id="eodfilter-err" class="m-err" style="display:none;margin-bottom:8px"></div>
+        <button class="btn btn-primary" onclick="saveEodFilters()">💾 Save EOD filters</button>
 
         <div style="border-top:1px solid #e2e6ea;margin:16px 0 12px"></div>
         <div style="font-size:13px;font-weight:700;color:#1d2b23;margin-bottom:6px">⏰ Automatic EOD schedule</div>
@@ -1904,6 +1930,62 @@ function saveThresholds(){
     .saveGlobalSettings({ acwThresholdSec: acwMin*60, callResponseSec: thresholds.callResponseSec });
 }
 
+// ── Session persistence (survive page refresh) ───────────────────────────────
+// On refresh the page reloads and in-memory state is lost. We save a small
+// marker (who is logged in — NOT the password) so a reload silently restores the
+// dashboard instead of bouncing to the login screen. Cleared only on Sign out.
+var _SESSION_KEY = 'eceCallQueueSession';
+function saveSession(user){
+  try {
+    if(!user) return;
+    localStorage.setItem(_SESSION_KEY, JSON.stringify({
+      id:user.id, name:user.name, username:user.username, role:user.role,
+      passwordChanged:user.passwordChanged, securityQuestion:user.securityQuestion,
+      aircallPref:user.aircallPref, savedAt:Date.now()
+    }));
+  } catch(e){ /* storage unavailable — session just won't persist */ }
+}
+function loadSession(){
+  try { var s=localStorage.getItem(_SESSION_KEY); return s?JSON.parse(s):null; }
+  catch(e){ return null; }
+}
+function clearSession(){
+  try { localStorage.removeItem(_SESSION_KEY); } catch(e){}
+}
+// Silently restore a session on page load. Does NOT call login() — so it never
+// resets the agent's status to Not Available or writes a login log. It only
+// reads fresh data and re-renders the dashboard the user was on.
+function restoreSession(){
+  var sess = loadSession();
+  if(!sess || !sess.id) return false;
+  currentUser = sess;
+  document.getElementById('loading-screen').style.display='flex';
+  google.script.run
+    .withSuccessHandler(function(d){
+      allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
+      if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
+      // Refresh currentUser's live status from the freshly-loaded agents, so the
+      // UI reflects what the agent is actually doing now — not the stale value
+      // from when they first logged in.
+      var me = (allAgents||[]).find(function(a){ return String(a.id)===String(currentUser.id); });
+      if(me){ currentUser.status=me.status; currentUser.aircallPref=me.aircallPref; }
+      else { // account no longer exists — treat as logged out
+        document.getElementById('loading-screen').style.display='none';
+        clearSession(); currentUser=null; show('s-login'); return;
+      }
+      document.getElementById('loading-screen').style.display='none';
+      if(currentUser.role==='admin') showAdmin(); else showAgent();
+    })
+    .withFailureHandler(function(){
+      // If we can't reach the server, fall back to the login screen rather than
+      // showing an empty dashboard.
+      document.getElementById('loading-screen').style.display='none';
+      currentUser=null; show('s-login');
+    })
+    .getInitialData(200);
+  return true;
+}
+
 // ── Login ───────────────────────────────────────────────────────────────────
 function doLogin(){
   var u=document.getElementById('inp-user').value.trim();
@@ -1930,6 +2012,7 @@ function doLogin(){
           allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
           if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
           document.getElementById('loading-screen').style.display='none';
+          saveSession(currentUser);
           if(currentUser.role==='admin') showAdmin(); else showAgent();
         })
         .withFailureHandler(function(){
@@ -1956,6 +2039,7 @@ function doLogout(){
   }
 }
 function performLocalLogout(){
+  clearSession();
   currentUser=null;allAgents=[];allLogs=[];filteredLogs=[];reportLogs=[];auxSummary={};
   _agentPolling=false; _adminPolling=false;
   _wasAtTop=false; _alertShowing=false;
@@ -2446,7 +2530,63 @@ function loadEmailSettingsEditor(){
   renderEmailTriggerList();
   var eod = document.getElementById('eod-recipients');
   if(eod) eod.value = globalSettings.eodRecipients || '';
+  renderEodFilterList();
   populateEodScheduleUI();
+}
+// ── EOD report filters (category/subcategory) ────────────────────────────────
+var _eodFilterWorking = null;
+function getEodFilters(){
+  var raw = globalSettings.eodFilters;
+  if(!raw) return [];
+  try { var a = (typeof raw==='string') ? JSON.parse(raw) : raw; return Array.isArray(a)?a:[]; }
+  catch(e){ return []; }
+}
+function renderEodFilterList(){
+  var box = document.getElementById('eodfilter-list');
+  if(!box) return;
+  if(!_eodFilterWorking) _eodFilterWorking = getEodFilters().slice();
+  if(!_eodFilterWorking.length){
+    box.innerHTML = '<p style="font-size:12px;color:#94a3b8">No EOD filters — the report includes all dispositions for the day.</p>';
+    return;
+  }
+  box.innerHTML='';
+  _eodFilterWorking.forEach(function(f,i){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid #e2e6ea;border-radius:8px;margin-bottom:6px;font-size:12px';
+    row.innerHTML =
+        '<span style="font-weight:600;min-width:110px">'+escapeHtml(f.category||'—')+'</span>'
+      + '<span style="color:#6b7280;flex:1">'+escapeHtml(f.subcategory||'(any subcategory)')+'</span>'
+      + '<button class="btn btn-ghost btn-sm" style="color:#dc2626" onclick="removeEodFilter('+i+')">🗑</button>';
+    box.appendChild(row);
+  });
+}
+function addEodFilter(){
+  var cat=(document.getElementById('eodfilter-cat').value||'').trim();
+  var sub=(document.getElementById('eodfilter-sub').value||'').trim();
+  var errEl=document.getElementById('eodfilter-err'); errEl.style.display='none';
+  if(!cat){ errEl.textContent='Enter a category.'; errEl.style.display='block'; return; }
+  if(!_eodFilterWorking) _eodFilterWorking=getEodFilters().slice();
+  _eodFilterWorking.push({ category:cat, subcategory:sub });
+  document.getElementById('eodfilter-cat').value='';
+  document.getElementById('eodfilter-sub').value='';
+  renderEodFilterList();
+}
+function removeEodFilter(i){
+  if(!_eodFilterWorking) return;
+  _eodFilterWorking.splice(i,1);
+  renderEodFilterList();
+}
+function saveEodFilters(){
+  if(!_eodFilterWorking) _eodFilterWorking=getEodFilters().slice();
+  var payload = JSON.stringify(_eodFilterWorking);
+  google.script.run
+    .withSuccessHandler(function(s){
+      globalSettings = s || globalSettings;
+      globalSettings.eodFilters = payload;
+      toast('EOD filters saved','success');
+    })
+    .withFailureHandler(function(e){ toast('Save failed: '+(e&&e.message||e),'error'); })
+    .saveGlobalSettings({ eodFilters: payload });
 }
 // ── EOD schedule + manual send ────────────────────────────────────────────────
 function _eodSched(){
@@ -3937,6 +4077,19 @@ function applyDispositionFilter(){
   var to   = document.getElementById('disp-rpt-to').value;    // 'YYYY-MM-DD'
   var cat  = document.getElementById('disp-rpt-category').value;
   var agent= document.getElementById('disp-rpt-agent').value;
+  var custnum = (document.getElementById('disp-rpt-custnum').value||'').trim().toLowerCase();
+  var aircall = (document.getElementById('disp-rpt-aircall').value||'').trim().toLowerCase();
+
+  // Normalize phone-ish text so "+1 222 333 4444", "1-222-333-4444" and
+  // "2223334444" all match each other — compare digits only when the query
+  // looks numeric; otherwise fall back to a plain substring match.
+  function normNum(s){ return String(s||'').replace(/[^0-9]/g,''); }
+  function matchNum(query, value){
+    if(!query) return true;
+    var qDigits = normNum(query);
+    if(qDigits.length){ return normNum(value).indexOf(qDigits) !== -1; }
+    return String(value||'').toLowerCase().indexOf(query) !== -1;
+  }
 
   // Compare by local calendar date (YYYY-MM-DD) to avoid UTC/local drift.
   // The stored timestamp is UTC ISO; we convert it to the viewer's local date.
@@ -3955,6 +4108,8 @@ function applyDispositionFilter(){
     if(from && !ds) return false;          // no date but a from-filter set
     if(cat && String(d.category||'').trim().toLowerCase() !== String(cat).trim().toLowerCase()) return false;
     if(agent && String(d.agentName||'').trim().toLowerCase() !== String(agent).trim().toLowerCase()) return false;
+    if(!matchNum(custnum, d.customerNumber)) return false;
+    if(!matchNum(aircall, d.aircallNumber)) return false;
     return true;
   });
   renderDispositionTable();
@@ -3965,6 +4120,8 @@ function resetDispositionFilter(){
   document.getElementById('disp-rpt-to').value='';
   document.getElementById('disp-rpt-category').value='';
   document.getElementById('disp-rpt-agent').value='';
+  document.getElementById('disp-rpt-custnum').value='';
+  document.getElementById('disp-rpt-aircall').value='';
   applyDispositionFilter();
 }
 
@@ -4060,6 +4217,7 @@ function submitFirstTimeSetup(){
           allAgents=d.agents||[];allLogs=d.logs||[];filteredLogs=allLogs;
           if(d.settings) globalSettings=Object.assign(globalSettings,d.settings);
           document.getElementById('loading-screen').style.display='none';
+          saveSession(currentUser);
           if(currentUser.role==='admin') showAdmin(); else showAgent();
         })
         .withFailureHandler(function(){
@@ -4360,7 +4518,11 @@ if(document.readyState === 'loading'){
 function bootApp(){
   ensureTickRunning();
   document.getElementById('loading-screen').style.display='none';
-  document.getElementById('s-login').classList.add('active');
+  // If a session exists, silently restore the dashboard (survives page refresh).
+  // Otherwise show the login screen as normal.
+  if(!restoreSession()){
+    document.getElementById('s-login').classList.add('active');
+  }
 }
 </script>
 </body>
