@@ -1083,6 +1083,44 @@ async function getIncomingCalls(windowSec) {
   return { call: top, count: fresh.length };
 }
 
+// Returns the most recent ECE incoming call (handled or not) within a lookback
+// window — used to autofill the disposition's Aircall line + caller number when
+// the popup didn't capture a match in memory (e.g. call handled via Aircall side).
+// Unlike getIncomingCalls (which only returns UNHANDLED calls), this returns the
+// latest ECE call regardless of the Handled flag, so it works after the call.
+async function getLatestEceCall(windowSec) {
+  const win = parseInt(windowSec) > 0 ? parseInt(windowSec) : 300; // default 5 min
+  let rows;
+  try {
+    const colB = await readRange(`${INCOMING_TAB}!B2:B`);
+    const total = (colB && colB.length) || 0;
+    if (total === 0) return { call: null };
+    const TAIL = 60;
+    const startRow = Math.max(2, total - TAIL + 2);
+    rows = await readRange(`${INCOMING_TAB}!A${startRow}:J`);
+  } catch (e) {
+    return { call: null };
+  }
+  if (!rows || !rows.length) return { call: null };
+
+  const cutoffMs = Date.now() - win * 1000;
+  const fresh = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const receivedAt = r[0], callId = r[1], direction = r[2], caller = r[3], lineName = r[5], status = r[7];
+    if (!callId) continue;
+    if (direction && String(direction) !== 'inbound') continue;
+    if (!isEceLine(lineName)) continue;   // exclude Berman Abogado
+    const t = Date.parse(receivedAt);
+    if (isNaN(t) || t < cutoffMs) continue;
+    fresh.push({ callId: String(callId), caller: String(caller||''), lineName: String(lineName||''), status: String(status||''), receivedAt, _t: t });
+  }
+  if (!fresh.length) return { call: null };
+  fresh.sort((a, b) => b._t - a._t);
+  const top = fresh[0]; delete top._t;
+  return { call: top };
+}
+
 // Marks a specific IncomingCalls row (by CallId) as handled. Idempotent.
 async function markIncomingCallHandled(callId) {
   if (!callId) return { ok: false, reason: 'no callId' };
@@ -1178,6 +1216,7 @@ export default async function handler(req, res) {
       case 'getLogsByDateRange':        data = await getLogsByDateRange(params.from, params.to); break;
       case 'getAgentAuxSummary':        data = await getAgentAuxSummary(params.from, params.to); break;
       case 'getIncomingCalls':          data = await getIncomingCalls(params.windowSec); break;
+      case 'getLatestEceCall':          data = await getLatestEceCall(params.windowSec); break;
       case 'markIncomingCallHandled':   data = await markIncomingCallHandled(params.callId); break;
       default:
         res.status(400).json({ error: 'Unknown function: ' + fn });
