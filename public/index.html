@@ -262,6 +262,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
     <div class="cal-ring">📞</div>
     <p class="cal-title" id="cal-title-text">Incoming call</p>
     <p class="cal-sub">You are next in queue. Please receive the call.</p>
+    <div id="cal-caller-info" style="display:none;font-size:13px;font-weight:600;color:#1d2b23;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;margin-bottom:12px"></div>
     <button class="cal-btn-receive" onclick="alertReceiveCall()">
       📞 Call received
     </button>
@@ -653,17 +654,25 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
               </div>
             </div>
             <div style="margin-top:10px">
-              <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Aircall Number</label>
-              <input type="text" id="disp-aircallnum" placeholder="e.g. +1 800 555 0100" maxlength="40" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"/>
+              <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Aircall Number / Line</label>
+              <select id="disp-aircallnum" onchange="onAircallSelectChange()" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff">
+                <option value="">— Select line —</option>
+                <option value="__other__">Other (type manually)…</option>
+              </select>
+              <input type="text" id="disp-aircallnum-other" placeholder="Type Aircall number/line" maxlength="60" style="display:none;width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;margin-top:6px"/>
             </div>
             <div style="margin-top:10px">
               <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px">Notes</label>
               <textarea id="disp-notes" rows="2" placeholder="Optional notes about the call…" maxlength="500" style="width:100%;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;resize:vertical"></textarea>
             </div>
             <div class="m-err" id="disp-err" style="display:none;margin-top:8px"></div>
+            <button class="btn btn-sm" id="disp-dropped-btn" onclick="backToAvailableKeepSpot()"
+              style="display:none;width:100%;margin-top:10px;background:#16a34a;color:#fff">
+              ⏮ Back to Available (keep my spot)
+            </button>
             <button class="btn btn-sm" id="disp-submit-btn" onclick="submitDisposition()" disabled
               style="width:100%;margin-top:10px;background:#06b6d4;color:#fff;opacity:.5;cursor:not-allowed">
-              ✔ Submit & Return to Available
+              ✔ Submit &amp; Return to Available
             </button>
             <p id="disp-submit-hint" style="font-size:10px;color:#94a3b8;text-align:center;margin:6px 0 0">You can fill this during the call. Submit becomes available after the call ends.</p>
           </div>
@@ -1042,6 +1051,14 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
       </div>
 
       <div class="card">
+        <div class="card-title">☎ Aircall numbers / lines</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">The list of Aircall numbers/lines agents can pick from in the disposition form's <strong>Aircall Number / Line</strong> dropdown. One line per entry (e.g. <strong>GW/TED 10XLA</strong>). Agents can still type a value via the dropdown's "Other" option. Live lines seen on incoming calls appear automatically too.</p>
+        <textarea id="aircall-lines-editor" rows="6" style="width:100%;font-family:Consolas,monospace;font-size:13px;padding:10px;border:1px solid #d1d5db;border-radius:8px;line-height:1.6" placeholder="GW/TED 10XLA&#10;BBT/PNC&#10;MARKETING #5&#10;10XLaw-local"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn-primary" onclick="saveAircallLines()">💾 Save lines</button>
+          <button class="btn btn-ghost" onclick="loadAircallLinesEditor()">↻ Reload</button>
+        </div>
+      </div>
         <div class="card-title">🏷️ Custom AUX statuses</div>
         <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Add your own agent-selectable activity statuses (like Break or Lunch). Agents can pick these from their status dropdown. Custom statuses are treated as "away" — the agent is not in the call queue while on one. System statuses (Available, On Call, ACW, Not Available, End of Shift) cannot be changed.</p>
         <div id="custstatus-list" style="margin-bottom:12px"></div>
@@ -1303,7 +1320,7 @@ window.google.script.run = {
 [
   'login','agentLogout','forceChangePassword','changePassword','changeSecurityQA',
   'getSecurityQuestion','resetPasswordWithSecurity','setMyStatus','markCallReceived',
-  'markCallEnded','finishACW','saveDisposition','getDispositions','archiveData','archiveDiagnostics','sendEODReport','sendTestEmail','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
+  'markCallEnded','finishACW','finishCallerDroppedRetainSpot','saveDisposition','getDispositions','archiveData','archiveDiagnostics','sendEODReport','sendTestEmail','logCallAvoidance','logMissedCall','createAgent','updateAgent','deleteAgent',
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary',
@@ -1330,6 +1347,7 @@ function _mapArgsToParams(fn, args){
     markCallReceived:            ['agentId','callerRole'],
     markCallEnded:               ['agentId','callerRole','callerDropped'],
     finishACW:                   ['agentId','expired'],
+    finishCallerDroppedRetainSpot: ['agentId'],
     saveDisposition:             ['disposition'],
     getDispositions:             ['limit'],
     archiveData:                 ['from','to','deleteAfter'],
@@ -1763,6 +1781,8 @@ function setupDisplaySettingsListeners(){
   }
   // Load disposition categories editor
   loadDispositionCategoriesEditor();
+  // Load Aircall lines editor
+  loadAircallLinesEditor();
   // Load custom AUX status editor
   loadCustomStatusEditor();
   // Load email triggers + EOD editor
@@ -1813,6 +1833,35 @@ function saveDispositionCategories(){
       toast('Failed to save categories: '+(e&&e.message?e.message:''),'error');
     })
     .saveGlobalSettings({ dispositionCategories: json });
+}
+
+// ── Aircall lines management (disposition dropdown source) ────────────────────
+function getAircallLinesList(){
+  var raw = globalSettings.aircallLines;
+  if(!raw) return [];
+  try { var a=(typeof raw==='string')?JSON.parse(raw):raw; return Array.isArray(a)?a.filter(Boolean):[]; }
+  catch(e){ return []; }
+}
+function loadAircallLinesEditor(){
+  var ta=document.getElementById('aircall-lines-editor');
+  if(ta) ta.value = getAircallLinesList().join('\n');
+}
+function saveAircallLines(){
+  var ta=document.getElementById('aircall-lines-editor');
+  if(!ta) return;
+  var lines = ta.value.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  // de-dupe, preserve order
+  var seen={}, out=[];
+  lines.forEach(function(l){ var k=l.toLowerCase(); if(!seen[k]){seen[k]=1; out.push(l);} });
+  var json = JSON.stringify(out);
+  globalSettings.aircallLines = json;
+  google.script.run
+    .withSuccessHandler(function(settings){
+      if(settings) globalSettings=Object.assign(globalSettings,settings);
+      toast('Aircall lines saved ('+out.length+')','success');
+    })
+    .withFailureHandler(function(e){ toast('Failed to save lines: '+(e&&e.message?e.message:''),'error'); })
+    .saveGlobalSettings({ aircallLines: json });
 }
 
 // ── Archive (Logs & Dispositions → Drive CSV) ─────────────────────────────────
@@ -2358,6 +2407,21 @@ function agentEndCall(callerDropped){
     _acwCallDuration = Math.round((Date.now() - new Date(me.callStart).getTime())/1000);
   } else { _acwCallDuration = 0; }
 
+  // 1.2 — Caller dropped: don't force ACW. Move to ACW briefly on the server for
+  // logging, then present the keep-spot flow (Back to Available skips ACW and
+  // retains the top position).
+  if(callerDropped){
+    google.script.run
+      .withSuccessHandler(function(data){
+        allAgents=data; currentUser.status='ACW';   // server puts them in ACW…
+        renderAgentView(); setRefreshed('agent');
+        enterCallerDroppedMode();                     // …but UI offers keep-spot skip
+      })
+      .withFailureHandler(function(){toast('Failed to end call','error');})
+      .markCallEnded(currentUser.id,'agent', true);
+    return;
+  }
+
   google.script.run
     .withSuccessHandler(function(data){
       allAgents=data; currentUser.status='ACW';
@@ -2366,7 +2430,7 @@ function agentEndCall(callerDropped){
       enterACWMode();
     })
     .withFailureHandler(function(){toast('Failed to end call','error');})
-    .markCallEnded(currentUser.id,'agent', !!callerDropped);
+    .markCallEnded(currentUser.id,'agent', false);
 }
 
 // ── Disposition panel (lives in the right panel, below Aircall) ───────────────
@@ -2376,6 +2440,7 @@ function showDispositionPanel(fillableDuringCall){
   if(!panel) return;
   relocateDispositionPanel();   // ensure it's in the visible host (left if Aircall hidden)
   populateDispositionCategories();
+  populateAircallLines();
   panel.style.display = 'block';
   // During an active call: form is fillable but Submit is disabled
   if(fillableDuringCall){
@@ -2392,8 +2457,92 @@ function resetDispositionForm(){
   document.getElementById('disp-category').value='';
   document.getElementById('disp-subcategory').innerHTML='<option value="">— Select category first —</option>';
   document.getElementById('disp-notes').value='';
-  document.getElementById('disp-aircallnum').value='';
+  setAircallField('');
+  var _oth = document.getElementById('disp-aircallnum-other');
+  if(_oth){ _oth.style.display='none'; _oth.value=''; }
   document.getElementById('disp-err').style.display='none';
+}
+
+// 2.2 — pre-fill the customer number and Aircall line on a call-driven disposition
+// from the matched live call. Editable: the agent can correct or clear either.
+function prefillFromMatchedCall(){
+  if(!_matchedCall) return;
+  var cn = document.getElementById('disp-custnum');
+  if(cn && !cn.value && _matchedCall.caller) cn.value = _matchedCall.caller;
+  // Aircall line: set the dropdown/free-text to the matched line if we have it.
+  setAircallField(_matchedCall.lineName || '');
+}
+
+// Populate the Aircall line dropdown from admin-configured lines (Settings)
+// merged with any live line seen on the matched call. Always keeps the "Other"
+// escape so any value can still be entered.
+function populateAircallLines(){
+  var sel = document.getElementById('disp-aircallnum');
+  if(!sel || sel.tagName!=='SELECT') return;
+  var lines = [];
+  try {
+    var raw = globalSettings.aircallLines;
+    var arr = (typeof raw==='string') ? JSON.parse(raw||'[]') : (raw||[]);
+    if(Array.isArray(arr)) lines = arr.filter(Boolean);
+  } catch(e){ lines = []; }
+  // include the live matched line if not already listed
+  if(_matchedCall && _matchedCall.lineName && lines.indexOf(_matchedCall.lineName)===-1){
+    lines.push(_matchedCall.lineName);
+  }
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— Select line —</option>';
+  lines.forEach(function(l){
+    var o=document.createElement('option'); o.value=l; o.textContent=l; sel.appendChild(o);
+  });
+  var oth=document.createElement('option'); oth.value='__other__'; oth.textContent='Other (type manually)…'; sel.appendChild(oth);
+  // restore prior selection if still valid
+  if(current && Array.prototype.some.call(sel.options,function(o){return o.value===current;})) sel.value=current;
+}
+
+function onAircallSelectChange(){
+  var sel = document.getElementById('disp-aircallnum');
+  var oth = document.getElementById('disp-aircallnum-other');
+  if(!sel || !oth) return;
+  if(sel.value==='__other__'){ oth.style.display='block'; oth.focus(); }
+  else { oth.style.display='none'; oth.value=''; }
+}
+
+// Read the effective Aircall value (dropdown choice, or the Other text).
+function getAircallValue(){
+  var sel = document.getElementById('disp-aircallnum');
+  if(!sel) return '';
+  if(sel.tagName==='SELECT'){
+    if(sel.value==='__other__'){
+      var oth=document.getElementById('disp-aircallnum-other');
+      return oth ? oth.value.trim() : '';
+    }
+    return sel.value || '';
+  }
+  return sel.value.trim();
+}
+
+// Set the Aircall # field whether it's rendered as a <select> or a text input.
+// If it's a select and the value isn't an option, add it so it still shows.
+function setAircallField(val){
+  var sel = document.getElementById('disp-aircallnum');
+  if(!sel) return;
+  if(sel.tagName === 'SELECT'){
+    if(val){
+      var found = Array.prototype.some.call(sel.options, function(o){ return o.value===val; });
+      if(!found){
+        // insert before the "Other" option so it stays last
+        var o=document.createElement('option'); o.value=val; o.textContent=val;
+        var otherOpt = Array.prototype.filter.call(sel.options,function(x){return x.value==='__other__';})[0];
+        if(otherOpt) sel.insertBefore(o, otherOpt); else sel.appendChild(o);
+      }
+      sel.value = val;
+    } else {
+      sel.value = '';
+    }
+    onAircallSelectChange();
+  } else {
+    sel.value = val || '';
+  }
 }
 
 // Hide + clear the disposition panel (after submit or auto-return)
@@ -2402,6 +2551,9 @@ function hideDispositionPanel(){
   if(panel) panel.style.display='none';
   resetDispositionForm();
   _manualDispositionMode = false;
+  _callerDroppedMode = false;
+  var db = document.getElementById('disp-dropped-btn');
+  if(db){ db.style.display='none'; db.disabled=false; }
   var hint = document.getElementById('ag-disp-status-hint');
   if(hint) hint.textContent='Fillable during the call';
   var closeBtn = document.getElementById('ag-disp-close');
@@ -2422,6 +2574,79 @@ function enterACWMode(){
   startACWTimer();
 }
 
+// 1.2 — Ghost/quick caller-dropped mode. Shows the disposition panel with the
+// category auto-filled to "Missed/Abandoned → Caller Dropped", and surfaces a
+// green "Back to Available (keep my spot)" button that returns the agent to the
+// TOP of the queue and SKIPS ACW. The normal Submit still works if the agent
+// prefers to record notes. No missed-call penalty.
+var _callerDroppedMode = false;
+function enterCallerDroppedMode(){
+  _callerDroppedMode = true;
+  var panel = document.getElementById('ag-disp-panel');
+  if(panel) panel.style.display='block';
+  relocateDispositionPanel();
+  populateDispositionCategories();
+  populateAircallLines();
+  // No ACW countdown in this mode.
+  document.getElementById('ag-disp-acw-wrap').style.display='none';
+  var hint = document.getElementById('ag-disp-status-hint');
+  if(hint){ hint.style.display=''; hint.textContent='Caller dropped — you kept your spot'; }
+  // Autofill the "Caller Dropped" category/subcategory if it exists.
+  autofillCallerDropped();
+  // Prefill line/number from the matched call (editable).
+  prefillFromMatchedCall();
+  // Show the keep-spot button; Submit remains available for a full disposition.
+  var db = document.getElementById('disp-dropped-btn');
+  if(db) db.style.display='block';
+  setDispSubmitEnabled(true);
+  if(panel) panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+// Try to set Category to a "Missed/Abandoned" (or similar) with subcategory
+// "Caller Dropped". Falls back gracefully if those options aren't configured.
+function autofillCallerDropped(){
+  var catSel = document.getElementById('disp-category');
+  if(!catSel) return;
+  var cats = getDispositionCategories();
+  // Find a category that looks like the abandoned/missed bucket.
+  var target = null;
+  cats.forEach(function(c){
+    var n = String(c.category||'').toLowerCase();
+    if(!target && (n.indexOf('missed')!==-1 || n.indexOf('abandon')!==-1 || n.indexOf('dropped')!==-1)) target=c.category;
+  });
+  if(target){
+    catSel.value = target;
+    onDispCategoryChange();
+    // pick a "Caller Dropped" subcategory if present
+    var subSel = document.getElementById('disp-subcategory');
+    if(subSel){
+      var match = Array.prototype.filter.call(subSel.options, function(o){
+        return String(o.value||'').toLowerCase().indexOf('dropped')!==-1 || String(o.value||'').toLowerCase().indexOf('caller')!==-1;
+      })[0];
+      if(match) subSel.value = match.value;
+    }
+  }
+}
+
+// The green "Back to Available (keep my spot)" action: skip ACW, retain #1.
+function backToAvailableKeepSpot(){
+  var db = document.getElementById('disp-dropped-btn');
+  if(db) db.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(data){
+      allAgents=data; currentUser.status='Available';
+      _callerDroppedMode=false;
+      hideDispositionPanel();
+      renderAgentView(); setRefreshed('agent');
+      toast('Back to Available — you kept your place in the queue','success');
+    })
+    .withFailureHandler(function(e){
+      if(db) db.disabled=false;
+      toast('Failed to return: '+(e&&e.message?e.message:'try again'),'error');
+    })
+    .finishCallerDroppedRetainSpot(currentUser.id);
+}
+
 function setDispSubmitEnabled(enabled){
   var btn = document.getElementById('disp-submit-btn');
   var hint = document.getElementById('disp-submit-hint');
@@ -2430,6 +2655,20 @@ function setDispSubmitEnabled(enabled){
   btn.style.opacity = enabled ? '1' : '.5';
   btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
   if(hint) hint.style.display = enabled ? 'none' : 'block';
+  updateSubmitLabel();
+}
+
+// 2.3 — the button should not claim to "Return to Available" when it won't.
+// Manual/outbound dispositions just submit; call-flow dispositions return to
+// Available after ACW.
+function updateSubmitLabel(){
+  var btn = document.getElementById('disp-submit-btn');
+  if(!btn) return;
+  if(_manualDispositionMode){
+    btn.innerHTML = '✔ Submit';
+  } else {
+    btn.innerHTML = '✔ Submit &amp; Return to Available';
+  }
 }
 
 function populateDispositionCategories(){
@@ -2848,7 +3087,7 @@ function submitDisposition(){
     category: cat,
     subcategory: sub,
     notes: document.getElementById('disp-notes').value.trim(),
-    aircallNumber: document.getElementById('disp-aircallnum').value.trim(),
+    aircallNumber: getAircallValue(),
     callDurationSec: _manualDispositionMode ? 0 : _acwCallDuration
   };
 
@@ -2909,6 +3148,7 @@ function openManualDisposition(){
   resetDispositionForm();
   relocateDispositionPanel();
   populateDispositionCategories();
+  populateAircallLines();
   panel.style.display = 'block';
   // Manual mode: no ACW timer, submit enabled immediately
   document.getElementById('ag-disp-acw-wrap').style.display='none';
@@ -3054,6 +3294,13 @@ function hideCallAlert() {
 // ── Modal action: agent receives call ────────────────────────────────────────
 function alertReceiveCall() {
   hideCallAlert();
+  // 5.1 — if a manual "Add disposition" form is open, close it so the agent
+  // doesn't end up filling two dispositions (manual + the mandatory in-call one).
+  if(_manualDispositionMode){
+    _manualDispositionMode = false;
+    var cb = document.getElementById('ag-disp-close');
+    if(cb) cb.style.display='none';
+  }
   google.script.run
     .withSuccessHandler(function(data){
       allAgents=data; currentUser.status='On Call'; renderAgentView();
@@ -3061,26 +3308,28 @@ function alertReceiveCall() {
       // Show disposition panel — fillable DURING the call (submit disabled until call ends)
       resetDispositionForm();
       showDispositionPanel(true);
+      // 2.2 — pre-fill customer number + Aircall line from the matched live call
+      // (editable; agent can correct/clear). Only on the call-driven form.
+      prefillFromMatchedCall();
     })
     .withFailureHandler(function(){ toast('Failed to receive call','error'); })
     .markCallReceived(currentUser.id,'agent');
 }
 
 // ── Modal action: caller dropped before answer ───────────────────────────────
+// 1.2 — Ghost call: agent keeps their #1 spot. We register the drop on the
+// server (for logging) then present the keep-spot flow (skip ACW, stay at top).
 function alertCallerDropped() {
   hideCallAlert();
-  _wasAtTop = false;
   _acwCallDuration = 0;
-  // Receive then immediately end as caller-dropped, so it flows into ACW + disposition
   google.script.run
     .withSuccessHandler(function(){
       google.script.run
         .withSuccessHandler(function(data){
           allAgents=data; currentUser.status='ACW'; renderAgentView();
           setRefreshed('agent');
-          resetDispositionForm();
-          enterACWMode();
-          toast('Caller dropped before answer — please log disposition','warning');
+          enterCallerDroppedMode();
+          toast('Caller dropped — you kept your spot at the top','warning');
         })
         .withFailureHandler(function(){ toast('Failed — refresh','error'); })
         .markCallEnded(currentUser.id,'agent', true);
@@ -3121,6 +3370,7 @@ function confirmDismiss() {
 // ── Live incoming-call state ─────────────────────────────────────────────────
 var _incomingCheckBusy = false;    // prevents overlapping getIncomingCalls calls
 var _currentIncomingCallId = null; // the call the popup is currently tied to
+var _matchedCall = null;           // full matched call obj (for prefill + display)
 var _lastIncomingCheckAt = 0;      // throttle: last time we asked the backend
 var INCOMING_CHECK_MS = 9000;      // check for a live call at most every ~9s
 
@@ -3138,6 +3388,7 @@ function checkCallAlert() {
     // Not #1 — no popup. Reset so it can fire again when we return to #1.
     _wasAtTop = false;
     _currentIncomingCallId = null;
+    _matchedCall = null;
     if(_alertShowing) hideCallAlert();
     return;
   }
@@ -3165,6 +3416,7 @@ function checkCallAlert() {
         // A real ECE call is here — fire the popup and tie it to this call.
         _wasAtTop = true;
         _currentIncomingCallId = res.call.callId;
+        _matchedCall = res.call;   // keep for prefill + popup display
 
         // Mark it handled immediately so it can't fire for anyone else or twice.
         google.script.run
@@ -3177,6 +3429,19 @@ function checkCallAlert() {
           var titleEl = document.getElementById('cal-title-text');
           if(titleEl && res.call.lineName){
             titleEl.textContent = 'Incoming call — ' + res.call.lineName;
+          }
+        } catch(e){}
+
+        // 1.2 — show customer number (and name if we ever capture it) on the popup.
+        try {
+          var infoEl = document.getElementById('cal-caller-info');
+          if(infoEl){
+            var bits = [];
+            if(res.call.caller) bits.push('📱 ' + res.call.caller);
+            if(res.call.customerName) bits.push('👤 ' + res.call.customerName);
+            if(res.call.lineName) bits.push('☎ ' + res.call.lineName);
+            infoEl.textContent = bits.join('   ');
+            infoEl.style.display = bits.length ? 'block' : 'none';
           }
         } catch(e){}
 
