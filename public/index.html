@@ -1324,7 +1324,7 @@ window.google.script.run = {
   'bulkSetStatus','bulkCreateAgents','getGlobalSettings','saveGlobalSettings','setAircallPref',
   'getAllAgents','getInitialData','getLogs',
   'getLogsByDateRange','getAgentAuxSummary',
-  'getIncomingCalls','markIncomingCallHandled'
+  'getIncomingCalls','markIncomingCallHandled','getLatestEceCall'
 ].forEach(function(fn){
   window.google.script.run[fn] = function(){
     var args = Array.prototype.slice.call(arguments);
@@ -1370,6 +1370,7 @@ function _mapArgsToParams(fn, args){
     getLogsByDateRange:          ['from','to'],
     getAgentAuxSummary:          ['from','to'],
     getIncomingCalls:            ['windowSec'],
+    getLatestEceCall:            ['windowSec'],
     markIncomingCallHandled:     ['callId']
   };
   var keys = maps[fn] || [];
@@ -2290,20 +2291,24 @@ function renderAgentView(){
     if(dp && dp.style.display!=='block'){ showDispositionPanel(true); }
   } else if(me.status==='ACW'){
     pinned.style.display='block';
-    document.getElementById('ag-pinned-label').textContent='After Call Work';
+    document.getElementById('ag-pinned-label').textContent = _callerDroppedMode ? 'Caller dropped — keep your spot' : 'After Call Work';
     var pt2=document.getElementById('ag-pinned-timer');
     pt2.setAttribute('data-start', me.auxStart?new Date(me.auxStart).getTime():Date.now());
     pt2.setAttribute('data-status','ACW');
     // In ACW, hide the call-ended buttons (call already ended) — disposition is the action
     document.getElementById('ag-pinned-buttons').style.display='none';
-    // Recover disposition panel if it got closed (e.g. page refresh during ACW)
+    // Recover disposition panel if it got closed (e.g. page refresh during ACW).
+    // BUT do not clobber caller-dropped mode with normal ACW mode — the poll runs
+    // every ~3s and would otherwise start the ACW timer and hide the keep-spot button.
     var dp2=document.getElementById('ag-disp-panel');
-    if(dp2 && dp2.style.display!=='block'){ enterACWMode(); }
+    if(dp2 && dp2.style.display!=='block'){
+      if(_callerDroppedMode) enterCallerDroppedMode(); else enterACWMode();
+    }
   } else {
     pinned.style.display='none';
     // Not on a call and not in ACW — make sure disposition panel is hidden
     var dp3=document.getElementById('ag-disp-panel');
-    if(dp3 && dp3.style.display==='block' && !_acwTimer && !_manualDispositionMode){ hideDispositionPanel(); }
+    if(dp3 && dp3.style.display==='block' && !_acwTimer && !_manualDispositionMode && !_callerDroppedMode){ hideDispositionPanel(); }
   }
 
   var badge=document.getElementById('ag-status-badge');
@@ -2463,14 +2468,31 @@ function resetDispositionForm(){
   document.getElementById('disp-err').style.display='none';
 }
 
-// 2.2 — pre-fill the customer number and Aircall line on a call-driven disposition
-// from the matched live call. Editable: the agent can correct or clear either.
+// 2.2 — pre-fill the customer number and Aircall line on a call-driven disposition.
+// Prefers the in-memory matched call (from the popup). If that's missing (e.g. the
+// call was handled on the Aircall side, or the popup didn't capture it), it falls
+// back to fetching the most recent ECE call from the IncomingCalls sheet — this is
+// where AircallLineName comes from. All fields stay editable.
 function prefillFromMatchedCall(){
-  if(!_matchedCall) return;
+  if(_matchedCall){
+    applyCallPrefill(_matchedCall);
+    return;
+  }
+  // Fallback: ask the backend for the latest ECE call (last 5 min).
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.call){ _matchedCall = res.call; applyCallPrefill(res.call); }
+    })
+    .withFailureHandler(function(){ /* no data — leave fields blank/editable */ })
+    .getLatestEceCall(300);
+}
+
+// Apply a call object's caller number + Aircall line to the form (editable).
+function applyCallPrefill(call){
+  if(!call) return;
   var cn = document.getElementById('disp-custnum');
-  if(cn && !cn.value && _matchedCall.caller) cn.value = _matchedCall.caller;
-  // Aircall line: set the dropdown/free-text to the matched line if we have it.
-  setAircallField(_matchedCall.lineName || '');
+  if(cn && !cn.value && call.caller) cn.value = call.caller;
+  if(call.lineName) setAircallField(call.lineName);
 }
 
 // Populate the Aircall line dropdown from admin-configured lines (Settings)
@@ -2582,6 +2604,10 @@ function enterACWMode(){
 var _callerDroppedMode = false;
 function enterCallerDroppedMode(){
   _callerDroppedMode = true;
+  // Kill any ACW auto-expire timer that might be armed — in this mode the agent
+  // keeps their spot and returns via the green button, never via ACW timeout.
+  if(_acwTimer){ clearTimeout(_acwTimer); _acwTimer=null; }
+  if(_acwCountdownInterval){ clearInterval(_acwCountdownInterval); _acwCountdownInterval=null; }
   var panel = document.getElementById('ag-disp-panel');
   if(panel) panel.style.display='block';
   relocateDispositionPanel();
@@ -2593,11 +2619,12 @@ function enterCallerDroppedMode(){
   if(hint){ hint.style.display=''; hint.textContent='Caller dropped — you kept your spot'; }
   // Autofill the "Caller Dropped" category/subcategory if it exists.
   autofillCallerDropped();
-  // Prefill line/number from the matched call (editable).
+  // Prefill line/number from the matched call (editable) — falls back to the
+  // most recent handled ECE call from the sheet if we don't have a match in memory.
   prefillFromMatchedCall();
   // Show the keep-spot button; Submit remains available for a full disposition.
   var db = document.getElementById('disp-dropped-btn');
-  if(db) db.style.display='block';
+  if(db){ db.style.display='block'; db.disabled=false; }
   setDispSubmitEnabled(true);
   if(panel) panel.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
