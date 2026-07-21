@@ -244,8 +244,38 @@ async function markCallEnded(agentId, callerRole, callerDropped) {
 }
 
 // Called when agent finishes ACW (manually or auto via timer)
-async function finishACW(agentId, expired) {
+// Ghost call / quick caller-drop: return the agent to Available but KEEP their
+// place at the top of the queue. Unlike finishACW (which sets queueJoinTime=now,
+// sending them to the back), this PRESERVES the existing queueJoinTime so the
+// round-robin keeps them at #1. Skips ACW entirely — one click back to Available.
+// If the agent has no prior queueJoinTime, we fall back to a timestamp far enough
+// in the past to keep them at the front.
+async function finishCallerDroppedRetainSpot(agentId) {
   const rowNum = await getAgentRowIndex(agentId);
+  if (!rowNum) return await getAllAgents({ fresh: true });
+  const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
+  const now = nowDate();
+
+  // Preserve the earliest join time we can. Column G (index 6) may already hold
+  // the agent's original queue-join time from before the call; keep it. If empty,
+  // seed with a very early time so they sort to the front.
+  let keepJoin = agentRow[6];
+  if (!keepJoin) {
+    keepJoin = new Date(now.getTime() - 3600 * 1000).toISOString(); // 1h ago
+  } else {
+    keepJoin = new Date(keepJoin).toISOString();
+  }
+
+  // Set Available, restore/preserve the join time (NOT now), clear call/ACW cols.
+  await writeRange(`Agents!F${rowNum}:H${rowNum}`, [['Available', keepJoin, '']]);
+  await writeRange(`Agents!J${rowNum}`, [[now.toISOString()]]);
+  await logEvent(agentId, agentRow[1], 'Caller Dropped', 'On Call', 'Available', now, 0,
+    '📵 Ghost/quick caller drop — retained top spot (skipped ACW)');
+  await recalculateQueue();
+  return await getAllAgents({ fresh: true });
+}
+
+async function finishACW(agentId, expired) {  const rowNum = await getAgentRowIndex(agentId);
   if (!rowNum) return await getAllAgents({ fresh: true });
   const agentRow = (await readRange(`Agents!A${rowNum}:M${rowNum}`))[0];
   if (agentRow[5] !== 'ACW') return await getAllAgents({ fresh: true }); // not in ACW, ignore
@@ -850,7 +880,8 @@ async function getGlobalSettings() {
     eodRecipients: '',                   // comma-separated addresses for the EOD summary
     eodSchedule: JSON.stringify({ frequency: 'off', hour: 18, dayOfWeek: 5, dayOfMonth: 1 }), // auto-EOD schedule (New York time)
     eodLastSentDate: '',                 // guard: last NY date an auto-EOD was sent
-    eodFilters: JSON.stringify([])       // [{category, subcategory}] — empty = EOD includes all
+    eodFilters: JSON.stringify([]),      // [{category, subcategory}] — empty = EOD includes all
+    aircallLines: JSON.stringify([])     // ['ECE Main', 'GW/TED 10XLA', …] admin-configured line names for the disposition dropdown
   };
   rows.forEach(r => {
     if (!r[0]) return;
@@ -1123,6 +1154,7 @@ export default async function handler(req, res) {
       case 'markCallReceived':          data = await markCallReceived(params.agentId, params.callerRole); break;
       case 'markCallEnded':             data = await markCallEnded(params.agentId, params.callerRole, params.callerDropped); break;
       case 'finishACW':                 data = await finishACW(params.agentId, params.expired); break;
+      case 'finishCallerDroppedRetainSpot': data = await finishCallerDroppedRetainSpot(params.agentId); break;
       case 'saveDisposition':           data = await saveDisposition(params.disposition || params); break;
       case 'getDispositions':           data = await getDispositions(params.limit); break;
       case 'archiveData':               data = await archiveData(params.from, params.to, params.deleteAfter); break;
