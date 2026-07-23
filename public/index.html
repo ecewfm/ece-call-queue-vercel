@@ -668,7 +668,7 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <div class="m-err" id="disp-err" style="display:none;margin-top:8px"></div>
             <button class="btn btn-sm" id="disp-dropped-btn" onclick="backToAvailableKeepSpot()"
               style="display:none;width:100%;margin-top:10px;background:#16a34a;color:#fff">
-              ⏮ Back to Available (keep my spot)
+              ⏮ Save &amp; Back to Available (keep my spot)
             </button>
             <button class="btn btn-sm" id="disp-submit-btn" onclick="submitDisposition()" disabled
               style="width:100%;margin-top:10px;background:#06b6d4;color:#fff;opacity:.5;cursor:not-allowed">
@@ -2657,21 +2657,39 @@ function autofillCallerDropped(){
 
 // The green "Back to Available (keep my spot)" action: skip ACW, retain #1.
 function backToAvailableKeepSpot(){
+  var errEl = document.getElementById('disp-err');
+  // Save the disposition first — same required fields as a normal disposition.
+  var disp = collectAndValidateDisposition();
+  if(!disp) return;   // validation failed (shows error); don't proceed
+
   var db = document.getElementById('disp-dropped-btn');
   if(db) db.disabled = true;
+  setDispSubmitEnabled(false);
+
   google.script.run
-    .withSuccessHandler(function(data){
-      allAgents=data; currentUser.status='Available';
-      _callerDroppedMode=false;
-      hideDispositionPanel();
-      renderAgentView(); setRefreshed('agent');
-      toast('Back to Available — you kept your place in the queue','success');
+    .withSuccessHandler(function(){
+      // Disposition saved — now return to Available while KEEPING the top spot.
+      google.script.run
+        .withSuccessHandler(function(data){
+          allAgents=data; currentUser.status='Available';
+          _callerDroppedMode=false;
+          hideDispositionPanel();
+          renderAgentView(); setRefreshed('agent');
+          toast('Disposition saved — back to Available, kept your spot','success');
+        })
+        .withFailureHandler(function(){
+          _callerDroppedMode=false;
+          hideDispositionPanel();
+          toast('Disposition saved, but failed to update queue — refresh','error');
+        })
+        .finishCallerDroppedRetainSpot(currentUser.id);
     })
     .withFailureHandler(function(e){
       if(db) db.disabled=false;
-      toast('Failed to return: '+(e&&e.message?e.message:'try again'),'error');
+      setDispSubmitEnabled(true);
+      errEl.textContent='Failed to save disposition: '+(e&&e.message?e.message:'try again'); errEl.style.display='block';
     })
-    .finishCallerDroppedRetainSpot(currentUser.id);
+    .saveDisposition(disp);
 }
 
 function setDispSubmitEnabled(enabled){
@@ -3097,16 +3115,17 @@ function handleACWExpired(){
     .finishACW(currentUser.id, true);
 }
 
-function submitDisposition(){
+// Collect + validate the disposition form. Returns the disposition object, or
+// null if validation fails (and shows the error). Shared by Submit and the
+// caller-dropped "keep my spot" button so both save consistently.
+function collectAndValidateDisposition(){
   var cat = document.getElementById('disp-category').value;
   var sub = document.getElementById('disp-subcategory').value;
   var errEl = document.getElementById('disp-err');
   errEl.style.display='none';
-
-  if(!cat){ errEl.textContent='Please select a disposition category.'; errEl.style.display='block'; return; }
-  if(!sub){ errEl.textContent='Please select a subcategory.'; errEl.style.display='block'; return; }
-
-  var disp = {
+  if(!cat){ errEl.textContent='Please select a disposition category.'; errEl.style.display='block'; return null; }
+  if(!sub){ errEl.textContent='Please select a subcategory.'; errEl.style.display='block'; return null; }
+  return {
     agentId: currentUser.id,
     agentName: currentUser.name,
     customerNumber: document.getElementById('disp-custnum').value.trim(),
@@ -3117,6 +3136,12 @@ function submitDisposition(){
     aircallNumber: getAircallValue(),
     callDurationSec: _manualDispositionMode ? 0 : _acwCallDuration
   };
+}
+
+function submitDisposition(){
+  var errEl = document.getElementById('disp-err');
+  var disp = collectAndValidateDisposition();
+  if(!disp) return;
 
   setDispSubmitEnabled(false);
 
@@ -3136,7 +3161,7 @@ function submitDisposition(){
     return;
   }
 
-  // Call-flow disposition: save then finish ACW and return to Available.
+  // Call-flow disposition: save then finish ACW and return to Available (bottom).
   google.script.run
     .withSuccessHandler(function(){
       google.script.run
