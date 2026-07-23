@@ -2589,9 +2589,16 @@ function enterACWMode(){
   var panel = document.getElementById('ag-disp-panel');
   if(panel) panel.style.display='block';
   relocateDispositionPanel();   // ensure visible host (left if Aircall hidden)
-  populateDispositionCategories(); // keep options; preserves any selection? re-populate is fine
+  // #3/#5 FIX — repopulate categories WITHOUT losing the agent's current
+  // Category+Subcategory selection (populateDispositionCategories now preserves
+  // both). This prevents the subcategory from clearing on 'Call ended', which was
+  // blocking Submit in ACW.
+  populateDispositionCategories();
+  populateAircallLines();
   document.getElementById('ag-disp-acw-wrap').style.display='inline-flex';
   document.getElementById('ag-disp-status-hint').style.display='none';
+  // #3 FIX — Submit must always be usable in ACW. Only Category+Subcategory are
+  // required (validated on submit); notes/customer number/name never block it.
   setDispSubmitEnabled(true);
   startACWTimer();
 }
@@ -2720,6 +2727,8 @@ function populateDispositionCategories(){
   var sel = document.getElementById('disp-category');
   if(!sel) return;
   var prev = sel.value;
+  var subSel = document.getElementById('disp-subcategory');
+  var prevSub = subSel ? subSel.value : '';   // remember subcategory too
   sel.innerHTML='<option value="">— Select —</option>';
   var cats = getDispositionCategories();
   cats.forEach(function(c){
@@ -2727,7 +2736,7 @@ function populateDispositionCategories(){
     opt.value=c.category; opt.textContent=c.category;
     sel.appendChild(opt);
   });
-  if(prev){ sel.value = prev; onDispCategoryChange(); }
+  if(prev){ sel.value = prev; onDispCategoryChange(prevSub); }  // restore cat + sub
 }
 
 function getDispositionCategories(){
@@ -3063,9 +3072,10 @@ function customStatusColor(name){
 }
 
 
-function onDispCategoryChange(){
+function onDispCategoryChange(preserveSub){
   var cat = document.getElementById('disp-category').value;
   var subSel = document.getElementById('disp-subcategory');
+  var prevSub = (preserveSub !== undefined) ? preserveSub : subSel.value;  // remember selection
   subSel.innerHTML='<option value="">— Select a subcategory —</option>';
   if(!cat){ subSel.innerHTML='<option value="">— Select category first —</option>'; return; }
   var cats = getDispositionCategories();
@@ -3076,6 +3086,12 @@ function onDispCategoryChange(){
       opt.value=s; opt.textContent=s;
       subSel.appendChild(opt);
     });
+  }
+  // #5 FIX — restore the previously selected subcategory if it's still valid, so
+  // rebuilding the category dropdown (e.g. on entering ACW) doesn't wipe it.
+  if(prevSub){
+    var stillValid = Array.prototype.some.call(subSel.options, function(o){ return o.value===prevSub; });
+    if(stillValid) subSel.value = prevSub;
   }
 }
 
@@ -3353,6 +3369,15 @@ function alertReceiveCall() {
     var cb = document.getElementById('ag-disp-close');
     if(cb) cb.style.display='none';
   }
+  // #2 FIX — re-mark this call Handled at the moment of acceptance (belt &
+  // suspenders on top of the mark-on-fire). This closes the race where the call
+  // wasn't yet flagged Handled and the next poll pops it for the NEXT agent.
+  if(_currentIncomingCallId){
+    google.script.run
+      .withSuccessHandler(function(){})
+      .withFailureHandler(function(){})
+      .markIncomingCallHandled(_currentIncomingCallId);
+  }
   google.script.run
     .withSuccessHandler(function(data){
       allAgents=data; currentUser.status='On Call'; renderAgentView();
@@ -3433,6 +3458,26 @@ var INCOMING_CHECK_MS = 9000;      // check for a live call at most every ~9s
 //       (Berman Abogado lines are excluded server-side).
 function checkCallAlert() {
   if(!currentUser || currentUser.role !== 'agent') return;
+
+  // Helper: freshest copy of my own agent record from the last poll.
+  function getMyAgent(){
+    return allAgents.find(function(a){ return String(a.id)===String(currentUser.id); });
+  }
+
+  // #1 FIX — never fire the incoming-call popup unless the agent is Available.
+  // On Call, ACW, Break, and any other status must not receive a "Call Received"
+  // popup (it's distracting mid-call and shouldn't happen at all).
+  var myStatus = currentUser.status;
+  var me0 = getMyAgent();
+  if(me0 && me0.status) myStatus = me0.status;  // trust the freshest status
+  if(myStatus !== 'Available'){
+    _wasAtTop = false;
+    _currentIncomingCallId = null;
+    _matchedCall = null;
+    if(_alertShowing) hideCallAlert();
+    return;
+  }
+
   var q    = getQueue();
   var isMe = q.length > 0 && String(q[0].id) === String(currentUser.id);
 
@@ -3459,7 +3504,11 @@ function checkCallAlert() {
   google.script.run
     .withSuccessHandler(function(res){
       _incomingCheckBusy = false;
-      // Guard: we might have dropped from #1 while the request was in flight.
+      // Guard: we might have dropped from #1 OR changed status while the request
+      // was in flight. Re-check both before firing.
+      var meNow = getMyAgent();
+      var statusNow = (meNow && meNow.status) ? meNow.status : currentUser.status;
+      if(statusNow !== 'Available') return;
       var q2 = getQueue();
       var stillMe = q2.length > 0 && String(q2[0].id) === String(currentUser.id);
       if(!stillMe || _wasAtTop || _alertShowing) return;
