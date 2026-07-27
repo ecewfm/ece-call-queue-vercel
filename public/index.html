@@ -3484,11 +3484,17 @@ function checkCallAlert() {
     return;
   }
 
+  // Am I a specialist for any line? (Special Queue set on my account.)
+  var mySpecial = (me0 && me0.specialQueue) ? String(me0.specialQueue).trim() : '';
+  var iAmSpecialist = mySpecial.length > 0;
+
   var q    = getQueue();
   var isMe = q.length > 0 && String(q[0].id) === String(currentUser.id);
 
-  if(!isMe) {
-    // Not #1 — no popup. Reset so it can fire again when we return to #1.
+  // Eligibility to even ASK the backend:
+  //   - General agents: only when they're #1 (normal round-robin), OR
+  //   - Specialists: ALWAYS (they may get their line's call regardless of position).
+  if(!isMe && !iAmSpecialist) {
     _wasAtTop = false;
     _currentIncomingCallId = null;
     _matchedCall = null;
@@ -3496,7 +3502,7 @@ function checkCallAlert() {
     return;
   }
 
-  // We ARE #1. Only fire if we haven't already, and no popup is showing.
+  // If a popup is already showing or we already fired for the current call, wait.
   if(_wasAtTop || _alertShowing) return;
 
   // Ask the backend whether a real ECE call is live right now — throttled so we
@@ -3510,17 +3516,22 @@ function checkCallAlert() {
   google.script.run
     .withSuccessHandler(function(res){
       _incomingCheckBusy = false;
-      // Guard: we might have dropped from #1 OR changed status while the request
-      // was in flight. Re-check both before firing.
+      // Guard: status could have changed while the request was in flight.
       var meNow = getMyAgent();
       var statusNow = (meNow && meNow.status) ? meNow.status : currentUser.status;
       if(statusNow !== 'Available') return;
-      var q2 = getQueue();
-      var stillMe = q2.length > 0 && String(q2[0].id) === String(currentUser.id);
-      if(!stillMe || _wasAtTop || _alertShowing) return;
+      if(_wasAtTop || _alertShowing) return;
 
       if(res && res.call && res.call.callId) {
-        // A real ECE call is here — fire the popup and tie it to this call.
+        // Decide whether we're allowed to fire for THIS call:
+        //   - Specialist-match call → fire regardless of queue position.
+        //   - General call → only if I'm still #1.
+        var q2 = getQueue();
+        var stillMe = q2.length > 0 && String(q2[0].id) === String(currentUser.id);
+        var isSpecialistCall = !!res.call.isSpecialistMatch;
+        if(!isSpecialistCall && !stillMe) return;   // general call but I'm not #1 → don't fire
+
+        // Fire the popup and tie it to this call.
         _wasAtTop = true;
         _currentIncomingCallId = res.call.callId;
         _matchedCall = res.call;   // keep for prefill + popup display
@@ -3582,8 +3593,16 @@ function updateCrmLock(){
   var isTopOne = (myPos === 0);
   var isAvailable = (status === 'Available');
 
+  // A specialist may receive their line's call regardless of queue position, so
+  // when a specialist-match popup is currently up for them, unlock the workspace
+  // so they can interact with the call.
+  var me = allAgents.find(function(a){return String(a.id)===String(currentUser.id);});
+  var iAmSpecialist = !!(me && me.specialQueue && String(me.specialQueue).trim());
+  var specialistActive = iAmSpecialist && isAvailable && _alertShowing &&
+                         _matchedCall && _matchedCall.isSpecialistMatch;
+
   // Unlock condition
-  var unlock = (!isAvailable) || (isAvailable && isTopOne);
+  var unlock = (!isAvailable) || (isAvailable && isTopOne) || specialistActive;
 
   if(unlock){
     overlay.style.display = 'none';
@@ -3592,6 +3611,8 @@ function updateCrmLock(){
       pill.innerHTML = '<i class="ti ti-phone" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked — On Call';
     } else if(status === 'Available' && isTopOne){
       pill.innerHTML = '<i class="ti ti-lock-open" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked — you\'re #1';
+    } else if(specialistActive){
+      pill.innerHTML = '<i class="ti ti-lock-open" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked — priority line';
     } else {
       pill.innerHTML = '<i class="ti ti-lock-open" aria-hidden="true" style="font-size:11px;vertical-align:-1px;margin-right:3px"></i> Unlocked';
     }
