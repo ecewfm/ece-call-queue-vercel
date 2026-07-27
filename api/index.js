@@ -1097,12 +1097,13 @@ async function getIncomingCalls(windowSec, agentId) {
     // If this call's line has ANY specialist, only a matching specialist may
     // receive it. General agents (and specialists of OTHER lines) are excluded.
     const lineKey = String(lineName || '').toLowerCase();
+    let isSpecialistMatch = false;
     if (lineHasSpecialist[lineKey]) {
       if (mySkills.indexOf(lineKey) === -1) continue;   // not my skill → skip
+      isSpecialistMatch = true;                          // this is MY specialist line
     } else {
-      // No specialist for this line → general call. If I'm a specialist agent,
-      // I can still take general calls (specialists aren't barred from general).
-      // (No action needed; general agents and specialists both qualify.)
+      // No specialist for this line → general call (any Available agent qualifies,
+      // subject to the #1 rule the frontend applies).
     }
 
     fresh.push({
@@ -1111,12 +1112,17 @@ async function getIncomingCalls(windowSec, agentId) {
       lineName: String(lineName || ''),
       status: String(status || ''),
       receivedAt: receivedAt,
+      isSpecialistMatch: isSpecialistMatch,
       _t: t,
     });
   }
   if (!fresh.length) return { call: null, count: 0 };
 
-  fresh.sort((a, b) => b._t - a._t);
+  // Prefer a specialist-match call first (it bypasses the #1 gate), then newest.
+  fresh.sort((a, b) => {
+    if (a.isSpecialistMatch !== b.isSpecialistMatch) return a.isSpecialistMatch ? -1 : 1;
+    return b._t - a._t;
+  });
   const top = fresh[0];
   delete top._t;
   return { call: top, count: fresh.length };
