@@ -1237,6 +1237,12 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
             <div id="af-special" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px;border:1px solid #d1d5db;border-radius:8px;background:#f8fafc;max-height:130px;overflow-y:auto">
               <span style="font-size:12px;color:#94a3b8">No Aircall lines configured yet — add them in Settings → Aircall numbers / lines.</span>
             </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <input type="text" id="af-special-manual" placeholder="Type an Aircall line name…" maxlength="80" style="flex:1;min-width:220px;font-size:13px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();addManualSpecialLine();}"/>
+              <button type="button" class="btn btn-sm btn-primary" onclick="addManualSpecialLine()">+ Add line</button>
+            </div>
+            <p style="font-size:11px;color:#b45309;margin-top:5px">⚠ The name must <strong>exactly match</strong> the Aircall line name (spelling &amp; spacing; case doesn't matter). A typo means calls on that line won't route to this agent. Added lines are also saved to the reusable list in Settings.</p>
           </div>
         </div>
         <div id="af-err" class="err-msg" style="display:none"></div>
@@ -4354,21 +4360,27 @@ function renderAdminAgentTable(){
   });
   c.appendChild(frag);
 }
-// Render the Special Queue checkboxes from the admin Aircall lines list.
-// `selected` is a comma-separated string of currently-assigned line names.
+// Render the Special Queue checkboxes from the admin Aircall lines list, MERGED
+// with any lines already assigned to this agent (so manually-added lines not yet
+// in Settings still appear and stay checked).
 function renderSpecialQueueChoices(selected){
   var box = document.getElementById('af-special');
   if(!box) return;
-  var lines = getAircallLinesList();  // from Settings
-  var sel = String(selected||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+  var lines = getAircallLinesList().slice();  // from Settings
+  var selArr = String(selected||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+  // merge any assigned lines that aren't in the Settings list (case-insensitive)
+  selArr.forEach(function(s){
+    var exists = lines.some(function(l){ return l.toLowerCase()===s.toLowerCase(); });
+    if(!exists) lines.push(s);
+  });
+  var sel = selArr.map(function(s){return s.toLowerCase();});
   if(!lines.length){
-    box.innerHTML = '<span style="font-size:12px;color:#94a3b8">No Aircall lines configured yet — add them in Settings → Aircall numbers / lines.</span>';
+    box.innerHTML = '<span style="font-size:12px;color:#94a3b8">No Aircall lines configured yet — type one below, or add them in Settings → Aircall numbers / lines.</span>';
     return;
   }
   box.innerHTML = '';
   lines.forEach(function(line){
     var checked = sel.indexOf(line.toLowerCase()) !== -1 ? 'checked' : '';
-    var id = 'afsq_' + line.replace(/[^a-z0-9]/gi,'_');
     var lbl = document.createElement('label');
     lbl.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:12px;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:5px 9px;cursor:pointer';
     lbl.innerHTML = '<input type="checkbox" class="af-sq-cb" value="'+escapeHtml(line)+'" '+checked+' style="margin:0"> '+escapeHtml(line);
@@ -4380,6 +4392,41 @@ function getSelectedSpecialQueue(){
   var out = [];
   Array.prototype.forEach.call(cbs, function(cb){ if(cb.checked) out.push(cb.value); });
   return out.join(', ');
+}
+
+// Manually add an Aircall line name: check it for this agent AND save it to the
+// reusable Settings list (so it becomes a checkbox for everyone next time).
+function addManualSpecialLine(){
+  var input = document.getElementById('af-special-manual');
+  if(!input) return;
+  var name = input.value.trim();
+  if(!name) return;
+
+  // Current selections (so we don't lose them on re-render)
+  var current = getSelectedSpecialQueue().split(',').map(function(s){return s.trim();}).filter(Boolean);
+
+  // Dedup against existing (case-insensitive)
+  var already = current.some(function(s){ return s.toLowerCase()===name.toLowerCase(); });
+  if(!already) current.push(name);
+
+  // Re-render with the new line included & checked
+  renderSpecialQueueChoices(current.join(', '));
+  input.value = '';
+
+  // Save to the reusable Settings list if it's new there.
+  var lines = getAircallLinesList();
+  var inList = lines.some(function(l){ return l.toLowerCase()===name.toLowerCase(); });
+  if(!inList){
+    var updated = lines.concat([name]);
+    var json = JSON.stringify(updated);
+    globalSettings.aircallLines = json;  // optimistic local update
+    google.script.run
+      .withSuccessHandler(function(s){ if(s) globalSettings=Object.assign(globalSettings,s); toast('Line added & saved to Settings list','success'); })
+      .withFailureHandler(function(){ toast('Line added for this agent, but failed to save to Settings list','warning'); })
+      .saveGlobalSettings({ aircallLines: json });
+  } else {
+    toast('Line added','success');
+  }
 }
 
 function openAddAgent(){
