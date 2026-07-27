@@ -1232,6 +1232,12 @@ input:focus,select:focus{border-color:#2563eb;box-shadow:0 0 0 2px #dbeafe}
           <div class="form-row"><label>Role</label>
             <select id="af-role"><option value="agent">Agent</option><option value="admin">Supervisor</option></select>
           </div>
+          <div class="form-row" style="grid-column:1 / -1">
+            <label>Special Queue <span style="font-weight:400;color:#6b7280">(skills — Aircall lines this agent is prioritized for; leave all unchecked = general queue)</span></label>
+            <div id="af-special" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px;border:1px solid #d1d5db;border-radius:8px;background:#f8fafc;max-height:130px;overflow-y:auto">
+              <span style="font-size:12px;color:#94a3b8">No Aircall lines configured yet — add them in Settings → Aircall numbers / lines.</span>
+            </div>
+          </div>
         </div>
         <div id="af-err" class="err-msg" style="display:none"></div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
@@ -1359,8 +1365,8 @@ function _mapArgsToParams(fn, args){
     getGlobalSettings:           [],
     saveGlobalSettings:          ['settings'],
     setAircallPref:              ['agentId','pref'],
-    createAgent:                 ['name','username','password','role'],
-    updateAgent:                 ['agentId','name','username','password','role'],
+    createAgent:                 ['name','username','password','role','specialQueue'],
+    updateAgent:                 ['agentId','name','username','password','role','specialQueue'],
     deleteAgent:                 ['agentId'],
     bulkSetStatus:               ['agentIds','newStatus'],
     bulkCreateAgents:            ['rows'],
@@ -1369,7 +1375,7 @@ function _mapArgsToParams(fn, args){
     getLogs:                     ['limit'],
     getLogsByDateRange:          ['from','to'],
     getAgentAuxSummary:          ['from','to'],
-    getIncomingCalls:            ['windowSec'],
+    getIncomingCalls:            ['windowSec','agentId'],
     getLatestEceCall:            ['windowSec'],
     markIncomingCallHandled:     ['callId']
   };
@@ -3554,7 +3560,7 @@ function checkCallAlert() {
       _incomingCheckBusy = false;
       // On error, do NOT fire — better a missed popup than a phantom one.
     })
-    .getIncomingCalls(90);  // look back 90 seconds
+    .getIncomingCalls(90, currentUser.id);  // look back 90 seconds; agentId for skill routing
 }
 // UNLOCKED when: agent is Available AND #1 in queue, OR any non-Available status
 // LOCKED when:   agent is Available AND position #2 or lower
@@ -4309,10 +4315,13 @@ function renderAdminAgentTable(){
     var statusCell = isAdmin
       ? '<span style="color:#94a3b8;font-size:12px">—</span>'
       : '<span class="badge '+statusBadgeClass(a.status)+'" style="'+statusBadgeStyle(a.status)+'">'+a.status+'</span>';
+    var sqBadge = (!isAdmin && a.specialQueue)
+      ? '<div style="font-size:10px;color:#0e7490;margin-top:1px">★ '+escapeHtml(a.specialQueue)+'</div>'
+      : '';
     var div=document.createElement('div');div.className='agent-tbl-row';
     div.innerHTML='<span style="display:flex;align-items:center;gap:8px">'
       +'<div class="avatar'+(isAdmin?' admin-av':'')+'" style="width:28px;height:28px;font-size:10px;flex-shrink:0">'+initials(a.name)+'</div>'
-      +'<span style="font-size:13px;font-weight:600">'+a.name+'</span></span>'
+      +'<span style="display:flex;flex-direction:column"><span style="font-size:13px;font-weight:600">'+a.name+'</span>'+sqBadge+'</span></span>'
       +'<span style="font-size:12px;color:#6b7280">'+a.username+'</span>'
       +'<span>'+roleBadge+'</span>'
       +'<span>'+statusCell+'</span>'
@@ -4324,6 +4333,34 @@ function renderAdminAgentTable(){
   });
   c.appendChild(frag);
 }
+// Render the Special Queue checkboxes from the admin Aircall lines list.
+// `selected` is a comma-separated string of currently-assigned line names.
+function renderSpecialQueueChoices(selected){
+  var box = document.getElementById('af-special');
+  if(!box) return;
+  var lines = getAircallLinesList();  // from Settings
+  var sel = String(selected||'').split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+  if(!lines.length){
+    box.innerHTML = '<span style="font-size:12px;color:#94a3b8">No Aircall lines configured yet — add them in Settings → Aircall numbers / lines.</span>';
+    return;
+  }
+  box.innerHTML = '';
+  lines.forEach(function(line){
+    var checked = sel.indexOf(line.toLowerCase()) !== -1 ? 'checked' : '';
+    var id = 'afsq_' + line.replace(/[^a-z0-9]/gi,'_');
+    var lbl = document.createElement('label');
+    lbl.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:12px;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:5px 9px;cursor:pointer';
+    lbl.innerHTML = '<input type="checkbox" class="af-sq-cb" value="'+escapeHtml(line)+'" '+checked+' style="margin:0"> '+escapeHtml(line);
+    box.appendChild(lbl);
+  });
+}
+function getSelectedSpecialQueue(){
+  var cbs = document.querySelectorAll('#af-special .af-sq-cb');
+  var out = [];
+  Array.prototype.forEach.call(cbs, function(cb){ if(cb.checked) out.push(cb.value); });
+  return out.join(', ');
+}
+
 function openAddAgent(){
   editingId=null;
   document.getElementById('agent-form-title').textContent='Add agent';
@@ -4331,6 +4368,7 @@ function openAddAgent(){
   document.getElementById('af-role').value='agent';
   document.getElementById('af-pass-hint').style.display='none';
   document.getElementById('af-err').style.display='none';
+  renderSpecialQueueChoices('');
   document.getElementById('agent-form-card').style.display='block';
   document.getElementById('agent-form-card').scrollIntoView({behavior:'smooth'});
 }
@@ -4344,6 +4382,7 @@ function openEditAgent(id){
   document.getElementById('af-role').value=a.role;
   document.getElementById('af-pass-hint').style.display='inline';
   document.getElementById('af-err').style.display='none';
+  renderSpecialQueueChoices(a.specialQueue||'');
   document.getElementById('agent-form-card').style.display='block';
   document.getElementById('agent-form-card').scrollIntoView({behavior:'smooth'});
 }
@@ -4353,6 +4392,7 @@ function saveAgent(){
   var uname=document.getElementById('af-user').value.trim();
   var pass=document.getElementById('af-pass').value;
   var role=document.getElementById('af-role').value;
+  var specialQueue=getSelectedSpecialQueue();
   var errEl=document.getElementById('af-err');errEl.style.display='none';
   if(!name||!uname){errEl.textContent='Name and username are required.';errEl.style.display='block';return;}
   if(!editingId&&!pass){errEl.textContent='Password is required for new agents.';errEl.style.display='block';return;}
@@ -4360,12 +4400,12 @@ function saveAgent(){
     google.script.run
       .withSuccessHandler(function(data){allAgents=data;renderAdminAgentTable();closeAgentForm();toast('Agent updated','success');})
       .withFailureHandler(function(){toast('Failed','error');})
-      .updateAgent(editingId,name,uname,pass,role);
+      .updateAgent(editingId,name,uname,pass,role,specialQueue);
   } else {
     google.script.run
       .withSuccessHandler(function(data){allAgents=data;renderAdminAgentTable();closeAgentForm();toast('Agent added','success');})
       .withFailureHandler(function(){toast('Failed','error');})
-      .createAgent(name,uname,pass,role);
+      .createAgent(name,uname,pass,role,specialQueue);
   }
 }
 function confirmDelete(id,name){
