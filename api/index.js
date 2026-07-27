@@ -66,7 +66,8 @@ function parseAgentRows(rows) {
     auxStart: r[9] ? new Date(r[9]).toISOString() : null,
     passwordChanged: r[10] === true || r[10] === 'TRUE',
     securityQuestion: r[11] || '',
-    aircallPref: r[13] || ''  // column N: '', 'show', or 'hide'
+    aircallPref: r[13] || '',  // column N: '', 'show', or 'hide'
+    specialQueue: r[14] || ''  // column O: comma-separated Aircall line names (skills)
   }));
 }
 
@@ -76,7 +77,7 @@ async function getAllAgents(opts) {
   if (!forceFresh && _agentsCache && (now - _agentsCacheAt) < AGENTS_CACHE_TTL_MS) {
     return _agentsCache;  // cache hit — no Sheets read
   }
-  const rows = await readRange('Agents!A2:N');
+  const rows = await readRange('Agents!A2:O');
   const parsed = parseAgentRows(rows);
   _agentsCache = parsed;
   _agentsCacheAt = Date.now();
@@ -95,7 +96,7 @@ async function getAgentRowIndex(agentId) {
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 
 async function login(username, password) {
-  const rows = await readRange('Agents!A2:N');
+  const rows = await readRange('Agents!A2:O');
   const hashed = hashPassword(password);
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -117,7 +118,8 @@ async function login(username, password) {
           status: role === 'agent' ? 'Not Available' : r[5],
           passwordChanged: r[10] === true || r[10] === 'TRUE',
           securityQuestion: r[11] || '',
-          aircallPref: r[13] || ''
+          aircallPref: r[13] || '',
+          specialQueue: r[14] || ''
         }
       };
     }
@@ -744,19 +746,32 @@ async function recalculateQueue() {
 
 // ── ACCOUNT MANAGEMENT ────────────────────────────────────────────────────────
 
-async function createAgent(name, username, password, role) {
+async function createAgent(name, username, password, role, specialQueue) {
   const isDefault = password === 'admin123';
   const now = nowDate();
+  await ensureSheetColumns('Agents', 15); // ensure column O exists
   await appendRow('Agents', [
     Date.now(), name, username, hashPassword(password),
     role, 'Not Available', '', '', '', now.toISOString(),
-    !isDefault, '', ''
+    !isDefault, '', '', '', normalizeSpecialQueue(specialQueue)
   ]);
   await logEvent(Date.now(), name, 'Account Created', '', role, now, 0, '');
   return await getAllAgents({ fresh: true });
 }
 
-async function updateAgent(agentId, name, username, password, role) {
+// Normalize a special-queue value to a clean comma-separated string of line names.
+function normalizeSpecialQueue(v) {
+  if (!v) return '';
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  const seen = {}, out = [];
+  arr.map(s => String(s).trim()).filter(Boolean).forEach(s => {
+    const k = s.toLowerCase();
+    if (!seen[k]) { seen[k] = 1; out.push(s); }
+  });
+  return out.join(', ');
+}
+
+async function updateAgent(agentId, name, username, password, role, specialQueue) {
   const rowNum = await getAgentRowIndex(agentId);
   if (!rowNum) return await getAllAgents({ fresh: true });
   await writeRange(`Agents!B${rowNum}:C${rowNum}`, [[name, username]]);
@@ -764,6 +779,11 @@ async function updateAgent(agentId, name, username, password, role) {
   if (password) {
     await writeRange(`Agents!D${rowNum}`, [[hashPassword(password)]]);
     if (password === 'admin123') await writeRange(`Agents!K${rowNum}`, [[false]]);
+  }
+  // Special Queue (column O) — only update when explicitly provided (undefined = leave as is)
+  if (specialQueue !== undefined) {
+    await ensureSheetColumns('Agents', 15);
+    await writeRange(`Agents!O${rowNum}`, [[normalizeSpecialQueue(specialQueue)]]);
   }
   await logEvent(agentId, name, 'Account Updated', '', '', nowDate(), 0, '');
   return await getAllAgents({ fresh: true });
@@ -1028,11 +1048,16 @@ function isEceLine(lineName) {
 }
 
 // Returns the most recent UNHANDLED, RECENT, ECE incoming call (or null).
-async function getIncomingCalls(windowSec) {
+// Build a lookup of which line names have at least one specialist, and whether a
+// given agent is a specialist for a line. Special Queue = comma-separated line
+// names on the agent (column O).
+function parseSpecial(s) {
+  return String(s || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+}
+
+async function getIncomingCalls(windowSec, agentId) {
   const win = parseInt(windowSec) > 0 ? parseInt(windowSec) : 90;
   // Read only the LAST ~50 rows, not the whole (large, fast-growing) tab.
-  // The live call is always near the bottom, so we find the current row count
-  // first (cheap, single column) and read only the tail.
   let rows;
   try {
     const colB = await readRange(`${INCOMING_TAB}!B2:B`);   // CallId column = row count
@@ -1046,17 +1071,19 @@ async function getIncomingCalls(windowSec) {
   }
   if (!rows || !rows.length) return { call: null, count: 0 };
 
+  // ── Skill routing setup ──
+  // Determine which line names have specialists, and whether THIS agent is one.
+  const agents = await getAllAgents();               // cached
+  const lineHasSpecialist = {};                       // lowercased line -> true
+  agents.forEach(a => parseSpecial(a.specialQueue).forEach(l => { lineHasSpecialist[l] = true; }));
+  const me = agents.find(a => String(a.id) === String(agentId));
+  const mySkills = me ? parseSpecial(me.specialQueue) : [];
+
   const cutoffMs = Date.now() - win * 1000;
   const fresh = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const receivedAt = r[0];
-    const callId     = r[1];
-    const direction  = r[2];
-    const caller     = r[3];
-    const lineName   = r[5];
-    const status     = r[7];
-    const handled    = r[9];
+    const receivedAt = r[0], callId = r[1], direction = r[2], caller = r[3], lineName = r[5], status = r[7], handled = r[9];
 
     if (handled) continue;
     if (!callId) continue;
@@ -1065,6 +1092,18 @@ async function getIncomingCalls(windowSec) {
 
     const t = Date.parse(receivedAt);
     if (isNaN(t) || t < cutoffMs) continue;
+
+    // ── Special Queue rule (specialist-only) ──
+    // If this call's line has ANY specialist, only a matching specialist may
+    // receive it. General agents (and specialists of OTHER lines) are excluded.
+    const lineKey = String(lineName || '').toLowerCase();
+    if (lineHasSpecialist[lineKey]) {
+      if (mySkills.indexOf(lineKey) === -1) continue;   // not my skill → skip
+    } else {
+      // No specialist for this line → general call. If I'm a specialist agent,
+      // I can still take general calls (specialists aren't barred from general).
+      // (No action needed; general agents and specialists both qualify.)
+    }
 
     fresh.push({
       callId: String(callId),
@@ -1202,8 +1241,8 @@ export default async function handler(req, res) {
       case 'sendTestEmail':             data = await sendTestEmail(params.recipients); break;
       case 'logCallAvoidance':          data = await logCallAvoidance(params.agentId, params.note); break;
       case 'logMissedCall':             data = await logMissedCall(params.agentId, params.secondsElapsed); break;
-      case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role); break;
-      case 'updateAgent':               data = await updateAgent(params.agentId, params.name, params.username, params.password, params.role); break;
+      case 'createAgent':               data = await createAgent(params.name, params.username, params.password, params.role, params.specialQueue); break;
+      case 'updateAgent':               data = await updateAgent(params.agentId, params.name, params.username, params.password, params.role, params.specialQueue); break;
       case 'deleteAgent':               data = await deleteAgent(params.agentId); break;
       case 'bulkSetStatus':             data = await bulkSetStatus(params.agentIds, params.newStatus); break;
       case 'bulkCreateAgents':          data = await bulkCreateAgents(params.rows); break;
@@ -1215,7 +1254,7 @@ export default async function handler(req, res) {
       case 'getLogs':                   data = await getLogs(params.limit); break;
       case 'getLogsByDateRange':        data = await getLogsByDateRange(params.from, params.to); break;
       case 'getAgentAuxSummary':        data = await getAgentAuxSummary(params.from, params.to); break;
-      case 'getIncomingCalls':          data = await getIncomingCalls(params.windowSec); break;
+      case 'getIncomingCalls':          data = await getIncomingCalls(params.windowSec, params.agentId); break;
       case 'getLatestEceCall':          data = await getLatestEceCall(params.windowSec); break;
       case 'markIncomingCallHandled':   data = await markIncomingCallHandled(params.callId); break;
       default:
